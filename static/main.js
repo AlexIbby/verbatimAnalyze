@@ -65,6 +65,9 @@ async function handleFile(file) {
     // Show loading
     document.getElementById('upload-loading').classList.add('show');
     clearError('upload-error');
+    
+    // Simulate upload progress
+    simulateUploadProgress();
 
     try {
         // Upload file
@@ -196,20 +199,38 @@ async function generateCategories() {
     }
 }
 
+// Global categories storage
+let currentCategories = [];
+
 // Display categories
 function displayCategories(categories, sampleSize, totalComments) {
+    currentCategories = categories; // Store for editing
     const categoryList = document.getElementById('category-list');
+    const samplePercentage = ((sampleSize / totalComments) * 100).toFixed(1);
+    
     categoryList.innerHTML = `
         <h4>Generated Categories:</h4>
-        <p class="info"><strong>Analysis:</strong> Examined ${sampleSize} of ${totalComments} comments to generate these categories</p>
+        <p class="info"><strong>Analysis:</strong> Analyzed ${samplePercentage}% of comments (${sampleSize} of ${totalComments}) to generate these categories</p>
     `;
 
-    categories.forEach(cat => {
+    categories.forEach((cat, index) => {
         const categoryItem = document.createElement('div');
         categoryItem.className = 'category-item';
+        categoryItem.setAttribute('data-index', index);
         categoryItem.innerHTML = `
-            <strong>${cat.title}</strong><br>
-            <small>${cat.description}</small>
+            <button class="category-edit-btn" onclick="editCategory(${index})">Edit</button>
+            <div class="category-display">
+                <strong>${cat.title}</strong><br>
+                <small>${cat.description}</small>
+            </div>
+            <div class="category-edit-form">
+                <input type="text" class="category-title-input" value="${cat.title}" placeholder="Category Title">
+                <textarea class="category-description-input" placeholder="Category Description">${cat.description}</textarea>
+                <div class="category-edit-actions">
+                    <button class="btn" onclick="saveCategory(${index})">Save</button>
+                    <button class="btn" onclick="cancelEdit(${index})">Cancel</button>
+                </div>
+            </div>
         `;
         categoryList.appendChild(categoryItem);
     });
@@ -260,10 +281,15 @@ async function pollClassificationProgress() {
         if (response.ok && progress.status !== 'not_started') {
             // Update progress bar
             const progressBar = document.getElementById('classify-progress');
+            const progressText = document.getElementById('classify-progress-text');
             const loadingElement = document.getElementById('classify-loading');
             
             if (progressBar) {
                 progressBar.style.width = `${progress.progress}%`;
+            }
+            
+            if (progressText) {
+                progressText.textContent = `${Math.round(progress.progress)}%`;
             }
             
             // Update status text
@@ -290,21 +316,22 @@ async function pollClassificationProgress() {
 // Display results
 function displayResults(data) {
     const resultsSummary = document.getElementById('results-summary');
+    const resultsContainer = document.getElementById('results-container');
     const downloadButtons = document.getElementById('download-buttons');
 
     let summaryHTML = `
         <h4>Classification Complete!</h4>
         <p><strong>Total Classified:</strong> ${data.total_classified}</p>
-        <h5>Category Breakdown:</h5>
     `;
-
-    Object.entries(data.category_counts).forEach(([category, count]) => {
-        const percentage = ((count / data.total_classified) * 100).toFixed(1);
-        summaryHTML += `<p><strong>${category}:</strong> ${count} (${percentage}%)</p>`;
-    });
 
     resultsSummary.innerHTML = summaryHTML;
     resultsSummary.style.display = 'block';
+    
+    // Create chart and detailed stats
+    createCategoryChart(data.category_counts, data.total_classified);
+    createDetailedStats(data.category_counts, data.total_classified);
+    
+    resultsContainer.style.display = 'block';
     downloadButtons.style.display = 'block';
 
     completeStep(5);
@@ -384,4 +411,186 @@ function completeStep(stepNumber) {
 function getStepName(stepNumber) {
     const stepNames = ['', 'upload', 'column', 'categories', 'classify', 'results'];
     return stepNames[stepNumber];
+}
+
+// Simulate upload progress
+function simulateUploadProgress() {
+    const progressBar = document.getElementById('upload-progress');
+    const progressText = document.getElementById('upload-progress-text');
+    let progress = 0;
+    
+    const interval = setInterval(() => {
+        progress += Math.random() * 15 + 5; // Random increment between 5-20%
+        if (progress > 100) progress = 100;
+        
+        if (progressBar) {
+            progressBar.style.width = `${progress}%`;
+        }
+        
+        if (progressText) {
+            progressText.textContent = `${Math.round(progress)}%`;
+        }
+        
+        if (progress >= 100) {
+            clearInterval(interval);
+        }
+    }, 200); // Update every 200ms
+}
+
+// Edit category
+function editCategory(index) {
+    const categoryItem = document.querySelector(`[data-index="${index}"]`);
+    const displayDiv = categoryItem.querySelector('.category-display');
+    const editForm = categoryItem.querySelector('.category-edit-form');
+    
+    categoryItem.classList.add('editing');
+    displayDiv.style.display = 'none';
+    editForm.classList.add('show');
+}
+
+// Save category
+function saveCategory(index) {
+    const categoryItem = document.querySelector(`[data-index="${index}"]`);
+    const titleInput = categoryItem.querySelector('.category-title-input');
+    const descriptionInput = categoryItem.querySelector('.category-description-input');
+    const displayDiv = categoryItem.querySelector('.category-display');
+    const editForm = categoryItem.querySelector('.category-edit-form');
+    
+    // Update the category data
+    currentCategories[index].title = titleInput.value.trim();
+    currentCategories[index].description = descriptionInput.value.trim();
+    
+    // Update the display
+    displayDiv.innerHTML = `
+        <strong>${currentCategories[index].title}</strong><br>
+        <small>${currentCategories[index].description}</small>
+    `;
+    
+    // Hide edit form
+    categoryItem.classList.remove('editing');
+    displayDiv.style.display = 'block';
+    editForm.classList.remove('show');
+}
+
+// Cancel category edit
+function cancelEdit(index) {
+    const categoryItem = document.querySelector(`[data-index="${index}"]`);
+    const displayDiv = categoryItem.querySelector('.category-display');
+    const editForm = categoryItem.querySelector('.category-edit-form');
+    const titleInput = categoryItem.querySelector('.category-title-input');
+    const descriptionInput = categoryItem.querySelector('.category-description-input');
+    
+    // Reset form values
+    titleInput.value = currentCategories[index].title;
+    descriptionInput.value = currentCategories[index].description;
+    
+    // Hide edit form
+    categoryItem.classList.remove('editing');
+    displayDiv.style.display = 'block';
+    editForm.classList.remove('show');
+}
+
+// Create category chart
+function createCategoryChart(categoryCounts, totalClassified) {
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    
+    const labels = Object.keys(categoryCounts);
+    const data = Object.values(categoryCounts);
+    const percentages = data.map(count => ((count / totalClassified) * 100).toFixed(1));
+    
+    // Generate attractive colors
+    const colors = [
+        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+        '#9966FF', '#FF9F40', '#FF6384', '#36A2EB',
+        '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+    ];
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors.slice(0, labels.length),
+                borderColor: colors.slice(0, labels.length).map(color => color + '80'),
+                borderWidth: 2,
+                hoverBorderWidth: 3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true,
+                        font: {
+                            size: 12
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label;
+                            const value = context.parsed;
+                            const percentage = ((value / totalClassified) * 100).toFixed(1);
+                            return `${label}: ${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            },
+            animation: {
+                animateRotate: true,
+                duration: 1000
+            }
+        }
+    });
+}
+
+// Create detailed statistics
+function createDetailedStats(categoryCounts, totalClassified) {
+    const detailedStats = document.getElementById('detailed-stats');
+    
+    let statsHTML = '';
+    
+    // Sort categories by count (descending)
+    const sortedCategories = Object.entries(categoryCounts)
+        .sort(([,a], [,b]) => b - a);
+    
+    sortedCategories.forEach(([category, count], index) => {
+        const percentage = ((count / totalClassified) * 100).toFixed(1);
+        const barWidth = (count / Math.max(...Object.values(categoryCounts))) * 100;
+        
+        statsHTML += `
+            <div style="margin-bottom: 15px; padding: 10px; border: 1px solid #eee; border-radius: 5px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                    <strong style="color: #333;">${category}</strong>
+                    <span style="color: #666; font-weight: bold;">${count} (${percentage}%)</span>
+                </div>
+                <div style="background: #f0f0f0; height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div style="background: linear-gradient(90deg, #007bff, #0056b3); height: 100%; width: ${barWidth}%; transition: width 0.8s ease;"></div>
+                </div>
+            </div>
+        `;
+    });
+    
+    // Add summary statistics
+    const avgPerCategory = (totalClassified / sortedCategories.length).toFixed(1);
+    const mostCommon = sortedCategories[0];
+    const leastCommon = sortedCategories[sortedCategories.length - 1];
+    
+    statsHTML += `
+        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <h5 style="margin-top: 0; color: #333;">Summary</h5>
+            <p><strong>Categories:</strong> ${sortedCategories.length}</p>
+            <p><strong>Avg per category:</strong> ${avgPerCategory} comments</p>
+            <p><strong>Most common:</strong> ${mostCommon[0]} (${((mostCommon[1] / totalClassified) * 100).toFixed(1)}%)</p>
+            <p><strong>Least common:</strong> ${leastCommon[0]} (${((leastCommon[1] / totalClassified) * 100).toFixed(1)}%)</p>
+        </div>
+    `;
+    
+    detailedStats.innerHTML = statsHTML;
 }
