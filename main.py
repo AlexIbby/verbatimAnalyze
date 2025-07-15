@@ -1,5 +1,6 @@
 from flask import Flask, render_template
 import os
+import logging
 from config import Config
 from routes.upload import upload_bp
 from routes.suggest import suggest_bp
@@ -14,6 +15,13 @@ import time
 app = Flask(__name__)
 app.config.from_object(Config)
 Config.init_app(app)
+
+# Configure logging with detailed format
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+)
+app.logger.setLevel(logging.DEBUG)
 
 # Register blueprints
 app.register_blueprint(upload_bp)

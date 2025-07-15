@@ -421,6 +421,9 @@ async function classifyComments() {
     document.getElementById('classify-btn').disabled = true;
     clearError('classify-error');
 
+    // Start progress streaming immediately
+    startProgressStream();
+
     try {
         // Start the classification process
         const response = await fetch(`/sessions/${currentSessionId}/classify`, {
@@ -433,12 +436,8 @@ async function classifyComments() {
             throw new Error(data.error || 'Classification failed');
         }
 
-        // Hide loading since classification is complete
-        document.getElementById('classify-loading').classList.remove('show');
-        
-        displayResults(data);
-        completeStep(4);
-        activateStep(5);
+        // Classification started successfully - progress stream will handle completion
+        console.log('Classification started:', data.message);
 
     } catch (error) {
         showError('classify-error', error.message);
@@ -468,15 +467,63 @@ function startProgressStream() {
             progressText.textContent = `${Math.round(progress.progress)}%`;
         }
         
-        // Close connection when done
-        if (progress.completed || progress.status === 'completed' || progress.status === 'failed') {
+        // Update step text
+        const stepText = document.getElementById('classify-step-text');
+        if (stepText && progress.current_step) {
+            stepText.textContent = progress.current_step;
+        }
+        
+        // Handle completion
+        if (progress.completed || progress.status === 'completed') {
             eventSource.close();
+            document.getElementById('classify-loading').classList.remove('show');
+            
+            // Fetch final results
+            fetchClassificationResults();
+        }
+        
+        // Handle failure
+        if (progress.status === 'failed') {
+            eventSource.close();
+            document.getElementById('classify-loading').classList.remove('show');
+            showError('classify-error', progress.error || 'Classification failed');
+            document.getElementById('classify-btn').disabled = false;
         }
     };
     
     eventSource.onerror = function() {
         eventSource.close();
     };
+}
+
+// Fetch classification results when completed
+async function fetchClassificationResults() {
+    if (!currentSessionId) return;
+    
+    try {
+        const response = await fetch(`/sessions/${currentSessionId}/classify/status`);
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to fetch results');
+        }
+        
+        // Format data to match expected structure
+        const resultsData = {
+            session_id: currentSessionId,
+            status: 'completed',
+            total_classified: data.total_rows,
+            category_counts: data.category_counts || {}
+        };
+        
+        displayResults(resultsData);
+        completeStep(4);
+        activateStep(5);
+        
+    } catch (error) {
+        showError('classify-error', error.message);
+        document.getElementById('classify-btn').disabled = false;
+    }
 }
 
 // Display results

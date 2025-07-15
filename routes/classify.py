@@ -3,6 +3,7 @@ from openai import OpenAI
 import pandas as pd
 import time
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from routes.upload import upload_sessions, classification_progress
 
@@ -10,7 +11,8 @@ classify_bp = Blueprint('classify', __name__)
 
 @classify_bp.route('/sessions/<session_id>/classify', methods=['POST'])
 def classify_comments(session_id):
-    """Classify comments synchronously with progress updates"""
+    """Start classification process asynchronously"""
+    current_app.logger.info(f"=== CLASSIFY ENDPOINT HIT for session {session_id} ===")
     try:
         if session_id not in upload_sessions:
             return jsonify({'error': 'Session not found'}), 404
@@ -47,32 +49,24 @@ def classify_comments(session_id):
             'current_step': 'Starting classification...',
             'completed': False
         }
+        current_app.logger.info(f"Initialized progress tracking for session {session_id}, total rows: {len(df)}")
         
-        # Perform classification synchronously
-        classified_df = perform_classification(df, verbatim_col, categories, session_id)
+        # Start classification in background thread with app context
+        current_app.logger.info(f"Starting background thread for session {session_id}")
+        thread = threading.Thread(
+            target=perform_classification_async,
+            args=(current_app._get_current_object(), df, verbatim_col, categories, session_id)
+        )
+        thread.daemon = True
+        thread.start()
+        current_app.logger.info(f"Background thread started for session {session_id}")
         
-        # Store classified data back to session
-        session['classified_data'] = classified_df
-        upload_sessions[session_id] = session
-        
-        # Mark as completed
-        classification_progress[session_id] = {
-            'status': 'completed',
-            'progress': 100,
-            'total': len(df),
-            'current_step': 'Classification completed',
-            'completed': True
-        }
-        
-        # Calculate category counts for response
-        category_counts = classified_df['Comment Category'].value_counts().to_dict()
-        
+        # Return immediately with processing status
         return jsonify({
             'session_id': session_id,
-            'status': 'completed',
-            'total_classified': len(classified_df),
-            'category_counts': category_counts
-        }), 200
+            'status': 'processing',
+            'message': 'Classification started'
+        }), 202
         
     except Exception as e:
         current_app.logger.error(f"Classification error: {e}")
@@ -162,6 +156,42 @@ def get_classification_status(session_id):
     except Exception as e:
         current_app.logger.error(f"Status check error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+def perform_classification_async(app, df, verbatim_col, categories, session_id):
+    """Perform classification in background thread with proper error handling"""
+    with app.app_context():
+        try:
+            current_app.logger.info(f"Starting background classification for session {session_id}")
+            classified_df = perform_classification(df, verbatim_col, categories, session_id)
+            
+            # Store classified data back to session
+            if session_id in upload_sessions:
+                upload_sessions[session_id]['classified_data'] = classified_df
+                current_app.logger.info(f"Stored classified data for session {session_id}")
+            
+            # Mark as completed
+            classification_progress[session_id] = {
+                'status': 'completed',
+                'progress': 100,
+                'total': len(df),
+                'current_step': 'Classification completed',
+                'completed': True
+            }
+            current_app.logger.info(f"Classification completed for session {session_id}")
+            
+        except Exception as e:
+            current_app.logger.error(f"Background classification error: {e}")
+            import traceback
+            current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
+            # Mark as failed
+            classification_progress[session_id] = {
+                'status': 'failed',
+                'progress': 0,
+                'total': classification_progress[session_id].get('total', 0),
+                'current_step': f'Classification failed: {str(e)}',
+                'completed': False,
+                'error': str(e)
+            }
 
 def perform_classification(df, verbatim_col, categories, session_id):
     """Perform the actual classification of comments"""
