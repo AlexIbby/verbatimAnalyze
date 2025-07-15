@@ -74,7 +74,15 @@ def update_categories(session_id):
                 return jsonify({'error': 'Each category must have title and description'}), 400
         
         # Update session
+        current_app.logger.info(f"=== UPDATING CATEGORIES ===")
+        current_app.logger.info(f"Session ID: {session_id}")
+        current_app.logger.info(f"Categories being stored: {categories}")
+        
         upload_sessions[session_id]['categories'] = categories
+        
+        # Verify categories were stored
+        stored_session = upload_sessions[session_id]
+        current_app.logger.info(f"Categories after storage: {stored_session.get('categories')}")
         
         return jsonify({
             'session_id': session_id,
@@ -85,6 +93,27 @@ def update_categories(session_id):
     except Exception as e:
         current_app.logger.error(f"Category update error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+@suggest_bp.route('/sessions/<session_id>/debug', methods=['GET'])
+def debug_session(session_id):
+    """Debug endpoint to check session state"""
+    try:
+        if session_id not in upload_sessions:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        session = upload_sessions[session_id]
+        
+        return jsonify({
+            'session_id': session_id,
+            'session_keys': list(session.keys()) if session else [],
+            'has_categories': 'categories' in session if session else False,
+            'categories_count': len(session.get('categories', [])) if session else 0,
+            'categories': session.get('categories', []) if session else []
+        }), 200
+    
+    except Exception as e:
+        current_app.logger.error(f"Debug session error: {e}")
+        return jsonify({'error': f'Debug error: {str(e)}'}), 500
 
 def generate_categories_with_llm(sample_comments):
     """Use OpenAI to generate categories from sample comments"""

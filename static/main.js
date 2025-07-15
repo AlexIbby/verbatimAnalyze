@@ -266,9 +266,17 @@ async function generateCategories() {
         }
 
         displayCategories(data.categories, data.sample_size, data.total_comments);
-        completeStep(3);
-        activateStep(4);
-        document.getElementById('classify-btn').disabled = false;
+        // Don't complete step 3 yet - wait for user confirmation
+        console.log('=== SHOWING CONFIRM BUTTON ===');
+        const confirmBtn = document.getElementById('confirm-categories-btn');
+        console.log('Confirm button element:', confirmBtn);
+        if (confirmBtn) {
+            confirmBtn.style.display = 'block';
+            confirmBtn.disabled = false;
+            console.log('Confirm button should now be visible');
+        } else {
+            console.error('Confirm button not found in DOM!');
+        }
 
     } catch (error) {
         showError('categories-error', error.message);
@@ -340,7 +348,69 @@ function displayCategories(categories, sampleSize, totalComments) {
         });
         
         console.log('=== DISPLAY CATEGORIES COMPLETE ===');
+        
+        // Also check if confirm button is still visible after DOM manipulation
+        const confirmBtn = document.getElementById('confirm-categories-btn');
+        console.log('After displayCategories - confirm button:', confirmBtn);
+        if (confirmBtn) {
+            console.log('Confirm button display:', confirmBtn.style.display);
+            console.log('Confirm button disabled:', confirmBtn.disabled);
+        }
     }, 200);
+}
+
+// Confirm categories
+async function confirmCategories() {
+    if (!currentSessionId) return;
+    
+    // Validate that we have categories
+    if (!currentCategories || currentCategories.length === 0) {
+        showError('categories-error', 'No categories to confirm. Please generate categories first.');
+        return;
+    }
+    
+    try {
+        clearError('categories-error');
+        
+        console.log('=== CONFIRMING CATEGORIES ===');
+        console.log('Categories being sent:', currentCategories);
+        console.log('Session ID:', currentSessionId);
+        
+        // Send categories to backend
+        const response = await fetch(`/sessions/${currentSessionId}/categories`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ categories: currentCategories })
+        });
+
+        const responseData = await response.json();
+        console.log('Backend response:', responseData);
+
+        if (!response.ok) {
+            throw new Error(responseData.error || 'Failed to confirm categories');
+        }
+        
+        // Categories confirmed successfully
+        showSuccess('categories-error', 'Categories confirmed successfully!');
+        
+        // Debug: Check session state after confirmation
+        const debugResponse = await fetch(`/sessions/${currentSessionId}/debug`);
+        const debugData = await debugResponse.json();
+        console.log('Session state after confirmation:', debugData);
+        
+        // Complete step 3 and enable classification
+        completeStep(3);
+        activateStep(4);
+        document.getElementById('classify-btn').disabled = false;
+        
+        // Hide confirm button and show success state
+        document.getElementById('confirm-categories-btn').style.display = 'none';
+        
+    } catch (error) {
+        showError('categories-error', error.message);
+    }
 }
 
 // Classify comments
@@ -355,27 +425,13 @@ async function classifyComments() {
         // Start polling for progress
         setTimeout(pollClassificationProgress, 500);
         
-        console.log('=== SENDING CATEGORIES TO BACKEND ===');
-        console.log('Current categories being sent:', currentCategories);
+        // Debug: Check session state before classification
+        console.log('=== PRE-CLASSIFICATION DEBUG ===');
+        const debugResponse = await fetch(`/sessions/${currentSessionId}/debug`);
+        const debugData = await debugResponse.json();
+        console.log('Session state before classification:', debugData);
         
-        // Send updated categories to backend first
-        const updateResponse = await fetch(`/sessions/${currentSessionId}/categories`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ categories: currentCategories })
-        });
-
-        if (!updateResponse.ok) {
-            const updateData = await updateResponse.json();
-            throw new Error(updateData.error || 'Failed to update categories');
-        }
-        
-        const updateData = await updateResponse.json();
-        console.log('Categories successfully updated on backend:', updateData);
-        
-        // Start the classification process
+        // Start the classification process (categories already confirmed)
         const response = await fetch(`/sessions/${currentSessionId}/classify`, {
             method: 'POST'
         });

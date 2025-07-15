@@ -44,7 +44,13 @@ def classify_comments(session_id):
         
         session = upload_sessions[session_id]
         
+        current_app.logger.info(f"=== CLASSIFY DEBUG ===")
+        current_app.logger.info(f"Session ID: {session_id}")
+        current_app.logger.info(f"Session keys: {list(session.keys()) if session else 'None'}")
+        current_app.logger.info(f"Categories in session: {session.get('categories') if session else 'None'}")
+        
         if not session.get('categories'):
+            current_app.logger.error(f"Categories not found in session for {session_id}")
             return jsonify({'error': 'Categories not defined. Please generate categories first.'}), 400
         
         df = session['dataframe']
