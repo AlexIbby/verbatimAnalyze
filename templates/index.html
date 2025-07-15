@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Survey Feedback Categorizer</title>
+    <title>Alex's Survey Analyzer</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -267,6 +267,11 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            height: 400px;
+            min-height: 300px;
+            max-height: 500px;
+            position: relative;
+            overflow: hidden;
         }
         .stats-container {
             background: white;
@@ -277,6 +282,27 @@
         @media (max-width: 768px) {
             .results-container {
                 grid-template-columns: 1fr;
+            }
+            .chart-container {
+                height: 300px;
+                min-height: 250px;
+                max-height: 350px;
+                padding: 15px;
+            }
+            .stats-container {
+                padding: 15px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .chart-container {
+                height: 250px;
+                min-height: 200px;
+                max-height: 300px;
+                padding: 10px;
+            }
+            .stats-container {
+                padding: 10px;
             }
         }
         .download-buttons {
@@ -302,7 +328,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Survey Feedback Categorizer</h1>
+        <h1>Alex's Survey Analyzer</h1>
         <p>Upload your survey data and automatically categorize verbatim comments using AI</p>
 
         <!-- Step 1: File Upload -->
@@ -370,7 +396,9 @@
             <div class="results-container" id="results-container" style="display: none;">
                 <div class="chart-container">
                     <h4>Category Distribution</h4>
-                    <canvas id="categoryChart" width="400" height="300"></canvas>
+                    <div style="position: relative; height: calc(100% - 40px); width: 100%;">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
                 </div>
                 <div class="stats-container">
                     <h4>Detailed Statistics</h4>

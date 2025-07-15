@@ -1,11 +1,27 @@
 // Global variables
 let currentSessionId = null;
 let currentStep = 1;
+let categoryChart = null;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     setupFileUpload();
     updateStepStatus();
+    
+    // Handle window resize for chart responsiveness
+    window.addEventListener('resize', function() {
+        if (categoryChart) {
+            // Update chart options based on new screen size
+            const isMobile = window.innerWidth < 768;
+            categoryChart.options.plugins.legend.labels.font.size = isMobile ? 10 : 12;
+            categoryChart.options.plugins.legend.labels.boxWidth = isMobile ? 12 : 15;
+            categoryChart.options.plugins.legend.labels.maxWidth = isMobile ? 150 : 200;
+            categoryChart.options.plugins.tooltip.titleFont.size = isMobile ? 12 : 14;
+            categoryChart.options.plugins.tooltip.bodyFont.size = isMobile ? 11 : 13;
+            categoryChart.options.elements.arc.borderWidth = isMobile ? 1 : 2;
+            categoryChart.update('none'); // Update without animation
+        }
+    });
 });
 
 // File upload setup
@@ -713,7 +729,12 @@ function createCategoryChart(categoryCounts, totalClassified) {
         '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
     ];
     
-    new Chart(ctx, {
+    // Destroy existing chart if it exists
+    if (categoryChart) {
+        categoryChart.destroy();
+    }
+    
+    categoryChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
             labels: labels,
@@ -728,15 +749,25 @@ function createCategoryChart(categoryCounts, totalClassified) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    top: 10,
+                    bottom: 10,
+                    left: 10,
+                    right: 10
+                }
+            },
             plugins: {
                 legend: {
                     position: 'bottom',
                     labels: {
-                        padding: 20,
+                        padding: 15,
                         usePointStyle: true,
                         font: {
-                            size: 12
-                        }
+                            size: window.innerWidth < 768 ? 10 : 12
+                        },
+                        boxWidth: window.innerWidth < 768 ? 12 : 15,
+                        maxWidth: window.innerWidth < 768 ? 150 : 200
                     }
                 },
                 tooltip: {
@@ -747,12 +778,23 @@ function createCategoryChart(categoryCounts, totalClassified) {
                             const percentage = ((value / totalClassified) * 100).toFixed(1);
                             return `${label}: ${value} (${percentage}%)`;
                         }
+                    },
+                    titleFont: {
+                        size: window.innerWidth < 768 ? 12 : 14
+                    },
+                    bodyFont: {
+                        size: window.innerWidth < 768 ? 11 : 13
                     }
                 }
             },
             animation: {
                 animateRotate: true,
                 duration: 1000
+            },
+            elements: {
+                arc: {
+                    borderWidth: window.innerWidth < 768 ? 1 : 2
+                }
             }
         }
     });
