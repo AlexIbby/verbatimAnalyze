@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survey Feedback Categorizer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .step {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #fafafa;
+        }
+        .step.active {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+        .step.completed {
+            border-color: #28a745;
+            background: #f0fff0;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            padding: 40px;
+            text-align: center;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #f0f8ff;
+        }
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .btn.success {
+            background: #28a745;
+        }
+        .btn.warning {
+            background: #ffc107;
+            color: #333;
+        }
+        .error {
+            color: #dc3545;
+            margin: 10px 0;
+        }
+        .success {
+            color: #28a745;
+            margin: 10px 0;
+        }
+        .info {
+            color: #17a2b8;
+            margin: 10px 0;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .loading.show {
+            display: block;
+        }
+        .progress-bar {
+            background: #f1f1f1;
+            border-radius: 10px;
+            padding: 3px;
+            margin: 10px 0;
+        }
+        .progress-bar-fill {
+            background: #007bff;
+            height: 20px;
+            border-radius: 7px;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .file-info {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .column-selector {
+            margin: 15px 0;
+        }
+        .column-selector select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+        }
+        .category-list {
+            margin: 15px 0;
+        }
+        .category-item {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+        }
+        .results-summary {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .download-buttons {
+            margin: 15px 0;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-indicator.pending {
+            background: #6c757d;
+        }
+        .status-indicator.active {
+            background: #007bff;
+        }
+        .status-indicator.completed {
+            background: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Survey Feedback Categorizer</h1>
+        <p>Upload your survey data and automatically categorize verbatim comments using AI</p>
+
+        <!-- Step 1: File Upload -->
+        <div class="step active" id="step-upload">
+            <h3><span class="status-indicator pending" id="upload-status"></span>Step 1: Upload File</h3>
+            <div class="upload-area" id="upload-area">
+                <p>Click here or drag and drop your Excel/CSV file</p>
+                <p><small>Supported formats: .xlsx, .xls, .csv (max 5MB)</small></p>
+                <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display: none;">
+            </div>
+            <div class="error" id="upload-error"></div>
+            <div class="loading" id="upload-loading">
+                <p>Uploading and analyzing file...</p>
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="upload-progress"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Column Selection -->
+        <div class="step" id="step-column">
+            <h3><span class="status-indicator pending" id="column-status"></span>Step 2: Verify Verbatim Column</h3>
+            <div id="file-info" class="file-info" style="display: none;"></div>
+            <div class="column-selector" style="display: none;" id="column-selector">
+                <label for="verbatim-column">Select the column containing comments:</label>
+                <select id="verbatim-column"></select>
+                <button class="btn" onclick="updateColumn()">Update Column</button>
+            </div>
+            <div class="error" id="column-error"></div>
+        </div>
+
+        <!-- Step 3: Category Generation -->
+        <div class="step" id="step-categories">
+            <h3><span class="status-indicator pending" id="categories-status"></span>Step 3: Generate Categories</h3>
+            <button class="btn" id="generate-categories-btn" onclick="generateCategories()" disabled>Generate Categories</button>
+            <div class="loading" id="categories-loading">
+                <p>Analyzing comments and generating categories...</p>
+            </div>
+            <div class="category-list" id="category-list"></div>
+            <div class="error" id="categories-error"></div>
+        </div>
+
+        <!-- Step 4: Classification -->
+        <div class="step" id="step-classify">
+            <h3><span class="status-indicator pending" id="classify-status"></span>Step 4: Classify Comments</h3>
+            <button class="btn" id="classify-btn" onclick="classifyComments()" disabled>Start Classification</button>
+            <div class="loading" id="classify-loading">
+                <p>Classifying all comments... This may take a few minutes.</p>
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="classify-progress"></div>
+                </div>
+            </div>
+            <div class="error" id="classify-error"></div>
+        </div>
+
+        <!-- Step 5: Results and Download -->
+        <div class="step" id="step-results">
+            <h3><span class="status-indicator pending" id="results-status"></span>Step 5: Download Results</h3>
+            <div class="results-summary" id="results-summary" style="display: none;"></div>
+            <div class="download-buttons" id="download-buttons" style="display: none;">
+                <button class="btn success" onclick="downloadCSV()">Download CSV</button>
+                <button class="btn warning" onclick="downloadPDF()">Download PDF Report</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/main.js"></script>
+</body>
+</html>

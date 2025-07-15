@@ -1,0 +1,243 @@
+from flask import Blueprint, request, jsonify, current_app
+from openai import OpenAI
+import pandas as pd
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from routes.upload import upload_sessions
+
+classify_bp = Blueprint('classify', __name__)
+
+@classify_bp.route('/sessions/<session_id>/classify', methods=['POST'])
+def classify_comments(session_id):
+    """Classify all comments using the defined categories"""
+    try:
+        if session_id not in upload_sessions:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        session = upload_sessions[session_id]
+        
+        if not session.get('categories'):
+            return jsonify({'error': 'Categories not defined. Please generate categories first.'}), 400
+        
+        df = session['dataframe']
+        verbatim_col = session['verbatim_column']
+        categories = session['categories']
+        
+        if not verbatim_col or verbatim_col not in df.columns:
+            return jsonify({'error': 'Verbatim column not set or invalid'}), 400
+        
+        # Start classification process
+        try:
+            classified_df = perform_classification(df, verbatim_col, categories)
+            
+            # Store classified data
+            session['classified_data'] = classified_df
+            
+            # Generate summary statistics
+            category_counts = classified_df['Comment Category'].value_counts().to_dict()
+            
+            # Get sample quotes for each category
+            category_samples = {}
+            for category in categories:
+                cat_title = category['title']
+                samples = classified_df[
+                    classified_df['Comment Category'] == cat_title
+                ][verbatim_col].head(3).tolist()
+                category_samples[cat_title] = samples
+            
+            return jsonify({
+                'session_id': session_id,
+                'status': 'completed',
+                'total_classified': len(classified_df),
+                'category_counts': category_counts,
+                'category_samples': category_samples
+            }), 200
+            
+        except Exception as e:
+            current_app.logger.error(f"Classification failed: {e}")
+            return jsonify({'error': f'Classification failed: {str(e)}'}), 500
+        
+    except Exception as e:
+        current_app.logger.error(f"Classification error: {e}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+@classify_bp.route('/sessions/<session_id>/classify/status', methods=['GET'])
+def get_classification_status(session_id):
+    """Get the status of classification process"""
+    try:
+        if session_id not in upload_sessions:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        session = upload_sessions[session_id]
+        
+        status = {
+            'session_id': session_id,
+            'has_categories': session.get('categories') is not None,
+            'has_classifications': session.get('classified_data') is not None,
+            'total_rows': session['total_rows']
+        }
+        
+        if session.get('classified_data') is not None:
+            df = session['classified_data']
+            status['category_counts'] = df['Comment Category'].value_counts().to_dict()
+        
+        return jsonify(status), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Status check error: {e}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+def perform_classification(df, verbatim_col, categories):
+    """Perform the actual classification of comments"""
+    # Create a copy of the dataframe
+    classified_df = df.copy()
+    
+    # Get non-empty comments
+    comments = df[verbatim_col].dropna().astype(str)
+    comments = comments[comments.str.len() > 0]
+    
+    if len(comments) == 0:
+        # If no comments, create empty category column
+        classified_df['Comment Category'] = 'No Comment'
+        return classified_df
+    
+    # Prepare category titles for LLM
+    category_titles = [cat['title'] for cat in categories]
+    
+    # Initialize results
+    classifications = {}
+    
+    if current_app.config.get('OPENAI_API_KEY'):
+        # Use OpenAI for classification
+        classifications = classify_with_llm(comments, category_titles)
+    else:
+        # Fallback to simple keyword matching
+        classifications = classify_with_keywords(comments, categories)
+    
+    # Apply classifications to dataframe
+    classified_df['Comment Category'] = classified_df.apply(
+        lambda row: get_classification_for_row(row, verbatim_col, classifications, category_titles[0]),
+        axis=1
+    )
+    
+    return classified_df
+
+def classify_with_llm(comments, category_titles):
+    """Classify comments using OpenAI API with batching for efficiency"""
+    client = OpenAI(api_key=current_app.config['OPENAI_API_KEY'])
+    classifications = {}
+    
+    # Prepare system message
+    system_message = f"""You label comments. 
+RULES:
+1. Choose ONE of the following categories exactly: {', '.join(category_titles)}.
+2. Output only that category title.
+3. If the comment is unclear or doesn't fit any category well, choose the closest match."""
+    
+    # Process comments in batches to respect rate limits
+    batch_size = 10
+    comment_list = comments.tolist()
+    comment_indices = comments.index.tolist()
+    
+    for i in range(0, len(comment_list), batch_size):
+        batch_comments = comment_list[i:i + batch_size]
+        batch_indices = comment_indices[i:i + batch_size]
+        
+        # Use ThreadPoolExecutor for parallel API calls within the batch
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_index = {
+                executor.submit(classify_single_comment, client, system_message, comment): idx
+                for comment, idx in zip(batch_comments, batch_indices)
+            }
+            
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                try:
+                    classification = future.result()
+                    classifications[idx] = classification
+                except Exception as e:
+                    current_app.logger.error(f"Failed to classify comment {idx}: {e}")
+                    classifications[idx] = category_titles[0]  # Default to first category
+        
+        # Small delay between batches to respect rate limits
+        if i + batch_size < len(comment_list):
+            time.sleep(0.5)
+    
+    return classifications
+
+def classify_single_comment(client, system_message, comment):
+    """Classify a single comment using OpenAI API"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": str(comment)}
+            ],
+            max_tokens=20,
+            temperature=0
+        )
+        
+        result = response.choices[0].message.content.strip()
+        return result
+        
+    except Exception as e:
+        current_app.logger.error(f"Single comment classification failed: {e}")
+        raise e
+
+def classify_with_keywords(comments, categories):
+    """Fallback classification using keyword matching"""
+    classifications = {}
+    
+    # Create keyword mappings for each category
+    keyword_map = {}
+    for cat in categories:
+        title = cat['title']
+        description = cat['description'].lower()
+        
+        # Extract keywords from title and description
+        keywords = []
+        keywords.extend(title.lower().split())
+        
+        # Add some common keywords based on category names
+        if 'wait' in title.lower() or 'time' in title.lower():
+            keywords.extend(['wait', 'delay', 'slow', 'queue', 'appointment', 'booking'])
+        elif 'service' in title.lower() or 'quality' in title.lower():
+            keywords.extend(['service', 'staff', 'quality', 'professional', 'helpful'])
+        elif 'access' in title.lower():
+            keywords.extend(['access', 'parking', 'disabled', 'wheelchair', 'stairs'])
+        elif 'communication' in title.lower():
+            keywords.extend(['information', 'explain', 'told', 'communication', 'contact'])
+        elif 'positive' in title.lower() or 'good' in title.lower():
+            keywords.extend(['good', 'great', 'excellent', 'thank', 'appreciate', 'helpful'])
+        elif 'process' in title.lower():
+            keywords.extend(['process', 'paperwork', 'form', 'system', 'procedure'])
+        
+        keyword_map[title] = keywords
+    
+    # Classify each comment
+    for idx, comment in comments.items():
+        comment_lower = str(comment).lower()
+        best_category = categories[0]['title']  # Default
+        max_matches = 0
+        
+        for cat_title, keywords in keyword_map.items():
+            matches = sum(1 for keyword in keywords if keyword in comment_lower)
+            if matches > max_matches:
+                max_matches = matches
+                best_category = cat_title
+        
+        classifications[idx] = best_category
+    
+    return classifications
+
+def get_classification_for_row(row, verbatim_col, classifications, default_category):
+    """Get classification for a specific row"""
+    comment = row[verbatim_col]
+    
+    # Check if comment is empty or null
+    if pd.isna(comment) or str(comment).strip() == '':
+        return 'No Comment'
+    
+    # Get classification from our results
+    return classifications.get(row.name, default_category)
