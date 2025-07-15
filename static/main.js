@@ -853,16 +853,12 @@ function createDetailedStats(categoryCounts, totalClassified) {
     
     sortedCategories.forEach(([category, count], index) => {
         const percentage = ((count / totalClassified) * 100).toFixed(1);
-        const barWidth = (count / Math.max(...Object.values(categoryCounts))) * 100;
         
         statsHTML += `
             <div style="margin-bottom: 15px; padding: 10px; border: 1px solid #eee; border-radius: 5px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
                     <strong style="color: #333;">${category}</strong>
                     <span style="color: #666; font-weight: bold;">${count} (${percentage}%)</span>
-                </div>
-                <div style="background: #f0f0f0; height: 8px; border-radius: 4px; overflow: hidden;">
-                    <div style="background: linear-gradient(90deg, #007bff, #0056b3); height: 100%; width: ${barWidth}%; transition: width 0.8s ease;"></div>
                 </div>
             </div>
         `;
