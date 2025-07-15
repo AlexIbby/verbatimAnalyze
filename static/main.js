@@ -248,6 +248,20 @@ async function classifyComments() {
         // Start polling for progress
         setTimeout(pollClassificationProgress, 500);
         
+        // Send updated categories to backend first
+        const updateResponse = await fetch(`/sessions/${currentSessionId}/categories`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ categories: currentCategories })
+        });
+
+        if (!updateResponse.ok) {
+            const updateData = await updateResponse.json();
+            throw new Error(updateData.error || 'Failed to update categories');
+        }
+        
         // Start the classification process
         const response = await fetch(`/sessions/${currentSessionId}/classify`, {
             method: 'POST'
