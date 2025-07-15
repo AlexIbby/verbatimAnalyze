@@ -122,7 +122,7 @@ def generate_insights_with_gpt4o(session):
             sample_comments = []
             if len(category_df) > 0:
                 samples = category_df[verbatim_col].dropna().astype(str)
-                samples = samples[samples.str.len() > 0].head(8).tolist()
+                samples = samples[samples.str.len() > 0].head(25).tolist()
                 sample_comments = samples
             
             category_data.append({
@@ -145,26 +145,27 @@ def generate_insights_with_gpt4o(session):
 Your analysis should be:
 - Clear and actionable for business decision-makers
 - Focused on key issues and opportunities
-- Concise but insightful
+- Based on specific criticisms and feedback found in the sample comments
 - Written in plain business language
+- Cite specific themes and patterns from the actual comments provided
 
 CRITICAL: Respond ONLY with a valid JSON object. Do not include any markdown formatting, explanations, or text outside the JSON. The response must start with { and end with }.
 
 Provide your response as a JSON object with these sections:
 {
   "key_insights": [
-    "3-5 bullet points of the most important findings"
+    "4-6 bullet points highlighting specific patterns and themes from the comments"
   ],
   "priority_opportunities": [
-    "3-4 specific, actionable recommendations"
+    "4-5 specific, actionable recommendations based on the feedback patterns"
   ],
-  "sentiment_summary": "Brief overview of overall customer sentiment",
+  "sentiment_summary": "Brief overview of overall customer sentiment with specific observations",
   "risk_areas": [
-    "2-3 areas that need immediate attention"
+    "3-4 areas that need immediate attention based on recurring complaints"
   ]
 }
 
-Focus on patterns, trends, and actionable recommendations rather than just repeating statistics."""
+Focus on specific criticisms, complaints, and suggestions found in the sample comments. Reference actual issues mentioned by customers."""
 
         user_prompt = f"""Analyze this customer feedback data:
 
@@ -179,16 +180,20 @@ CATEGORY BREAKDOWN:
             user_prompt += f"""
 {cat['title']} ({cat['count']} responses, {cat['percentage']:.1f}%):
 - Description: {cat['description']}
-- Sample comments: {cat['samples'][:5]}  # Limit samples to avoid token limits
+- Sample comments: {cat['samples'][:25]}
 """
 
         user_prompt += """
 
-Please provide insights focusing on:
-1. What are the biggest pain points for customers?
-2. What opportunities exist to improve customer experience?
-3. Which issues should be prioritized based on frequency and impact?
-4. What positive trends can be built upon?"""
+Analyze the sample comments thoroughly and provide insights focusing on:
+1. What specific pain points and criticisms are customers expressing?
+2. What patterns emerge across the feedback categories?
+3. Which operational issues appear most frequently in the comments?
+4. What specific improvements are customers requesting?
+5. Which problems should be prioritized based on frequency and severity of complaints?
+6. What positive feedback can guide future improvements?
+
+Pay close attention to recurring themes, specific service failures, and actionable suggestions within the actual customer comments provided."""
 
         # Make the API call
         response = client.chat.completions.create(
@@ -197,7 +202,7 @@ Please provide insights focusing on:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=1000,
+            max_tokens=1500,
             temperature=0.3,
             response_format={"type": "json_object"}
         )
