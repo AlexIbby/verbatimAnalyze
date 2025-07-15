@@ -229,104 +229,16 @@ function displayCategories(categories, sampleSize, totalComments) {
     categoryList.innerHTML = `
         <h4>Generated Categories:</h4>
         <p class="info"><strong>Analysis:</strong> Analyzed ${samplePercentage}% of comments (${sampleSize} of ${totalComments}) to generate these categories</p>
+        <div style="margin-bottom: 20px;">
+            <button class="btn" onclick="addNewCategory()" style="background: #28a745; color: white;">+ Add New Category</button>
+        </div>
     `;
 
     categories.forEach((cat, index) => {
-        console.log(`Creating category ${index}:`, cat);
-        
-        // Create main category item container
-        const categoryItem = document.createElement('div');
-        categoryItem.className = 'category-item';
-        categoryItem.setAttribute('data-index', index);
-        categoryItem.style.cssText = `
-            position: relative !important;
-            background: white !important;
-            border: 1px solid #ddd !important;
-            padding: 15px 80px 15px 15px !important;
-            margin: 8px 0 !important;
-            border-radius: 6px !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
-            transition: box-shadow 0.2s ease !important;
-        `;
-        
-        // Create display content
-        const displayDiv = document.createElement('div');
-        displayDiv.className = 'category-display';
-        displayDiv.innerHTML = `
-            <strong style="font-size: 16px; color: #333;">${cat.title}</strong><br>
-            <small style="color: #666; line-height: 1.4;">${cat.description}</small>
-        `;
-        
-        // Create edit form (initially hidden)
-        const editForm = document.createElement('div');
-        editForm.className = 'category-edit-form';
-        editForm.style.display = 'none';
-        editForm.innerHTML = `
-            <input type="text" class="category-title-input" value="${cat.title}" placeholder="Category Title" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
-            <textarea class="category-description-input" placeholder="Category Description" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; height: 60px; resize: vertical;">${cat.description}</textarea>
-            <div class="category-edit-actions" style="margin-top: 10px;">
-                <button class="btn" onclick="saveCategory(${index})" style="margin-right: 5px;">Save</button>
-                <button class="btn" onclick="cancelEdit(${index})">Cancel</button>
-            </div>
-        `;
-        
-        // Create edit button with highly visible styling
-        const editButton = document.createElement('button');
-        editButton.className = 'category-edit-btn';
-        editButton.textContent = 'Edit';
-        editButton.setAttribute('data-category-index', index);
-        editButton.style.cssText = `
-            position: absolute !important;
-            top: 8px !important;
-            right: 8px !important;
-            background: #007bff !important;
-            color: white !important;
-            border: 2px solid #fff !important;
-            padding: 8px 12px !important;
-            border-radius: 4px !important;
-            cursor: pointer !important;
-            font-size: 14px !important;
-            font-weight: bold !important;
-            z-index: 1000 !important;
-            display: block !important;
-            visibility: visible !important;
-            min-width: 50px !important;
-            text-align: center !important;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
-        `;
-        
-        // Add click event listener directly
-        editButton.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log(`Edit button clicked for category ${index}`);
-            editCategory(index);
-        });
-        
-        // Add hover effects
-        editButton.addEventListener('mouseenter', function() {
-            this.style.background = '#0056b3 !important';
-            this.style.transform = 'translateY(-1px)';
-            this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3) !important';
-        });
-        
-        editButton.addEventListener('mouseleave', function() {
-            this.style.background = '#007bff !important';
-            this.style.transform = 'translateY(0)';
-            this.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2) !important';
-        });
-        
-        // Assemble the category item
-        categoryItem.appendChild(displayDiv);
-        categoryItem.appendChild(editForm);
-        categoryItem.appendChild(editButton);
-        
-        // Add to the list
+        const categoryItem = createCategoryItem(cat, index);
         categoryList.appendChild(categoryItem);
         
         console.log(`Category ${index} item created successfully`);
-        console.log('Edit button element:', editButton);
-        console.log('Category item element:', categoryItem);
     });
     
     // Verify all buttons were created and are visible
@@ -633,6 +545,7 @@ function editCategory(index) {
     
     const displayDiv = categoryItem.querySelector('.category-display');
     const editForm = categoryItem.querySelector('.category-edit-form');
+    const editButton = categoryItem.querySelector('.category-edit-btn');
     
     if (!displayDiv || !editForm) {
         console.error(`Could not find display div or edit form for category ${index}`);
@@ -645,6 +558,11 @@ function editCategory(index) {
     displayDiv.style.display = 'none';
     editForm.style.display = 'block';
     editForm.classList.add('show');
+    
+    // Hide the edit button while editing
+    if (editButton) {
+        editButton.style.display = 'none';
+    }
     
     // Focus on the title input
     const titleInput = editForm.querySelector('.category-title-input');
@@ -670,6 +588,7 @@ function saveCategory(index) {
     const descriptionInput = categoryItem.querySelector('.category-description-input');
     const displayDiv = categoryItem.querySelector('.category-display');
     const editForm = categoryItem.querySelector('.category-edit-form');
+    const editButton = categoryItem.querySelector('.category-edit-btn');
     
     if (!titleInput || !descriptionInput || !displayDiv || !editForm) {
         console.error('Could not find required form elements');
@@ -681,6 +600,16 @@ function saveCategory(index) {
     
     if (!newTitle || !newDescription) {
         alert('Please provide both a title and description for the category.');
+        return;
+    }
+    
+    // Check for duplicate titles (excluding current category)
+    const duplicateIndex = currentCategories.findIndex((cat, idx) => 
+        idx !== index && cat.title.toLowerCase() === newTitle.toLowerCase()
+    );
+    
+    if (duplicateIndex !== -1) {
+        alert('A category with this title already exists. Please choose a different title.');
         return;
     }
     
@@ -707,6 +636,11 @@ function saveCategory(index) {
     editForm.style.display = 'none';
     editForm.classList.remove('show');
     
+    // Show the edit button
+    if (editButton) {
+        editButton.style.display = 'block';
+    }
+    
     console.log('Category saved successfully:', currentCategories[index]);
     console.log('Updated categories array:', currentCategories);
 }
@@ -723,6 +657,7 @@ function cancelEdit(index) {
     
     const displayDiv = categoryItem.querySelector('.category-display');
     const editForm = categoryItem.querySelector('.category-edit-form');
+    const editButton = categoryItem.querySelector('.category-edit-btn');
     const titleInput = categoryItem.querySelector('.category-title-input');
     const descriptionInput = categoryItem.querySelector('.category-description-input');
     
@@ -732,6 +667,17 @@ function cancelEdit(index) {
     }
     
     console.log('Canceling edit and restoring original values');
+    
+    // Check if this is a new empty category
+    const isNewCategory = !currentCategories[index].title && !currentCategories[index].description;
+    
+    if (isNewCategory) {
+        console.log('Removing new empty category');
+        // Remove the new empty category
+        currentCategories.splice(index, 1);
+        refreshCategoryDisplay();
+        return;
+    }
     
     // Reset form values to original
     titleInput.value = currentCategories[index].title;
@@ -743,7 +689,193 @@ function cancelEdit(index) {
     editForm.style.display = 'none';
     editForm.classList.remove('show');
     
+    // Show the edit button
+    if (editButton) {
+        editButton.style.display = 'block';
+    }
+    
     console.log('Edit canceled successfully');
+}
+
+// Add new category
+function addNewCategory() {
+    console.log('=== ADD NEW CATEGORY ===');
+    
+    const newCategory = {
+        title: '',
+        description: ''
+    };
+    
+    // Add to the categories array
+    currentCategories.push(newCategory);
+    const newIndex = currentCategories.length - 1;
+    
+    console.log('Added new empty category at index:', newIndex);
+    
+    // Create the category item
+    const categoryList = document.getElementById('category-list');
+    const categoryItem = createCategoryItem(newCategory, newIndex, true); // true for edit mode
+    
+    categoryList.appendChild(categoryItem);
+    
+    // Focus on the title input
+    const titleInput = categoryItem.querySelector('.category-title-input');
+    if (titleInput) {
+        titleInput.focus();
+        titleInput.placeholder = 'Enter category title...';
+    }
+    
+    console.log('New category item created and focused');
+}
+
+// Create category item (extracted for reuse)
+function createCategoryItem(cat, index, editMode = false) {
+    console.log(`Creating category ${index}:`, cat);
+    
+    // Create main category item container
+    const categoryItem = document.createElement('div');
+    categoryItem.className = 'category-item';
+    categoryItem.setAttribute('data-index', index);
+    categoryItem.style.cssText = `
+        position: relative !important;
+        background: white !important;
+        border: 1px solid #ddd !important;
+        padding: 15px 80px 15px 15px !important;
+        margin: 8px 0 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+        transition: box-shadow 0.2s ease !important;
+    `;
+    
+    // Create display content
+    const displayDiv = document.createElement('div');
+    displayDiv.className = 'category-display';
+    displayDiv.innerHTML = `
+        <strong style="font-size: 16px; color: #333;">${cat.title}</strong><br>
+        <small style="color: #666; line-height: 1.4;">${cat.description}</small>
+    `;
+    
+    // Create edit form
+    const editForm = document.createElement('div');
+    editForm.className = 'category-edit-form';
+    editForm.style.display = editMode ? 'block' : 'none';
+    editForm.innerHTML = `
+        <input type="text" class="category-title-input" value="${cat.title}" placeholder="Category Title" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+        <textarea class="category-description-input" placeholder="Category Description" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; height: 60px; resize: vertical;">${cat.description}</textarea>
+        <div class="category-edit-actions" style="margin-top: 10px;">
+            <button class="btn" onclick="saveCategory(${index})" style="margin-right: 5px;">Save</button>
+            <button class="btn" onclick="cancelEdit(${index})">Cancel</button>
+            <button class="btn" onclick="deleteCategory(${index})" style="background: #dc3545; margin-left: 5px;">Delete</button>
+        </div>
+    `;
+    
+    // Create edit button
+    const editButton = document.createElement('button');
+    editButton.className = 'category-edit-btn';
+    editButton.textContent = 'Edit';
+    editButton.setAttribute('data-category-index', index);
+    editButton.style.cssText = `
+        position: absolute !important;
+        top: 8px !important;
+        right: 8px !important;
+        background: #007bff !important;
+        color: white !important;
+        border: 2px solid #fff !important;
+        padding: 8px 12px !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
+        font-size: 14px !important;
+        font-weight: bold !important;
+        z-index: 1000 !important;
+        display: ${editMode ? 'none' : 'block'} !important;
+        visibility: visible !important;
+        min-width: 50px !important;
+        text-align: center !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    `;
+    
+    // Add click event listener
+    editButton.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log(`Edit button clicked for category ${index}`);
+        editCategory(index);
+    });
+    
+    // Add hover effects
+    editButton.addEventListener('mouseenter', function() {
+        this.style.background = '#0056b3 !important';
+        this.style.transform = 'translateY(-1px)';
+        this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3) !important';
+    });
+    
+    editButton.addEventListener('mouseleave', function() {
+        this.style.background = '#007bff !important';
+        this.style.transform = 'translateY(0)';
+        this.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2) !important';
+    });
+    
+    // Set initial edit mode if needed
+    if (editMode) {
+        categoryItem.classList.add('editing');
+        displayDiv.style.display = 'none';
+        editForm.classList.add('show');
+    }
+    
+    // Assemble the category item
+    categoryItem.appendChild(displayDiv);
+    categoryItem.appendChild(editForm);
+    categoryItem.appendChild(editButton);
+    
+    return categoryItem;
+}
+
+// Delete category
+function deleteCategory(index) {
+    console.log(`=== DELETE CATEGORY ${index} ===`);
+    
+    if (currentCategories.length <= 1) {
+        alert('You must have at least one category.');
+        return;
+    }
+    
+    if (confirm('Are you sure you want to delete this category?')) {
+        // Remove from array
+        currentCategories.splice(index, 1);
+        
+        // Refresh the display
+        refreshCategoryDisplay();
+        
+        console.log('Category deleted successfully');
+    }
+}
+
+// Refresh category display with updated indices
+function refreshCategoryDisplay() {
+    console.log('=== REFRESH CATEGORY DISPLAY ===');
+    
+    const categoryList = document.getElementById('category-list');
+    const existingContent = categoryList.innerHTML;
+    
+    // Extract the header and add button
+    const headerMatch = existingContent.match(/<h4>.*?<\/div>/s);
+    const headerContent = headerMatch ? headerMatch[0] : `
+        <h4>Generated Categories:</h4>
+        <div style="margin-bottom: 20px;">
+            <button class="btn" onclick="addNewCategory()" style="background: #28a745; color: white;">+ Add New Category</button>
+        </div>
+    `;
+    
+    // Clear and rebuild
+    categoryList.innerHTML = headerContent;
+    
+    // Re-add all categories with correct indices
+    currentCategories.forEach((cat, index) => {
+        const categoryItem = createCategoryItem(cat, index);
+        categoryList.appendChild(categoryItem);
+    });
+    
+    console.log('Category display refreshed successfully');
 }
 
 // Create category chart

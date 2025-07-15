@@ -10,7 +10,9 @@
       "Bash(git add:*)",
       "Bash(grep:*)",
       "Bash(taskkill:*)",
-      "Bash(kill:*)"
+      "Bash(kill:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }

@@ -188,7 +188,7 @@ RULES:
 3. If the comment is unclear or doesn't fit any category well, choose the closest match."""
     
     # Process comments in batches to respect rate limits
-    batch_size = 10
+    batch_size = 20
     comment_list = comments.tolist()
     comment_indices = comments.index.tolist()
     total_batches = len(range(0, len(comment_list), batch_size))
