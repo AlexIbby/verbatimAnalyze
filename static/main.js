@@ -13,12 +13,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (categoryChart) {
             // Update chart options based on new screen size
             const isMobile = window.innerWidth < 768;
-            categoryChart.options.plugins.legend.labels.font.size = isMobile ? 10 : 12;
-            categoryChart.options.plugins.legend.labels.boxWidth = isMobile ? 12 : 15;
-            categoryChart.options.plugins.legend.labels.maxWidth = isMobile ? 150 : 200;
+            categoryChart.options.scales.x.ticks.font.size = isMobile ? 10 : 12;
+            categoryChart.options.scales.y.ticks.font.size = isMobile ? 10 : 12;
             categoryChart.options.plugins.tooltip.titleFont.size = isMobile ? 12 : 14;
             categoryChart.options.plugins.tooltip.bodyFont.size = isMobile ? 11 : 13;
-            categoryChart.options.elements.arc.borderWidth = isMobile ? 1 : 2;
             categoryChart.update('none'); // Update without animation
         }
     });
@@ -495,10 +493,44 @@ function downloadCSV() {
     window.open(`/sessions/${currentSessionId}/download/csv`, '_blank');
 }
 
-// Download PDF
+// Download PDF with chart image
 function downloadPDF() {
     if (!currentSessionId) return;
-    window.open(`/sessions/${currentSessionId}/download/pdf`, '_blank');
+    
+    // Capture chart as image if it exists
+    if (categoryChart) {
+        const chartImageData = categoryChart.toBase64Image('image/png', 1.0);
+        
+        // Send chart image data with PDF request
+        fetch(`/sessions/${currentSessionId}/download/pdf`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                chart_image: chartImageData 
+            })
+        })
+        .then(response => response.blob())
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'comments_analysis_report.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(error => {
+            console.error('Error downloading PDF:', error);
+            // Fallback to regular PDF download
+            window.open(`/sessions/${currentSessionId}/download/pdf`, '_blank');
+        });
+    } else {
+        // No chart available, use regular download
+        window.open(`/sessions/${currentSessionId}/download/pdf`, '_blank');
+    }
 }
 
 // Utility functions
@@ -735,7 +767,7 @@ function createCategoryChart(categoryCounts, totalClassified) {
     }
     
     categoryChart = new Chart(ctx, {
-        type: 'doughnut',
+        type: 'bar',
         data: {
             labels: labels,
             datasets: [{
@@ -749,6 +781,7 @@ function createCategoryChart(categoryCounts, totalClassified) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            indexAxis: 'y',
             layout: {
                 padding: {
                     top: 10,
@@ -757,26 +790,40 @@ function createCategoryChart(categoryCounts, totalClassified) {
                     right: 10
                 }
             },
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        padding: 15,
-                        usePointStyle: true,
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    grid: {
+                        display: true,
+                        color: '#e0e0e0'
+                    },
+                    ticks: {
                         font: {
                             size: window.innerWidth < 768 ? 10 : 12
-                        },
-                        boxWidth: window.innerWidth < 768 ? 12 : 15,
-                        maxWidth: window.innerWidth < 768 ? 150 : 200
+                        }
                     }
+                },
+                y: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        font: {
+                            size: window.innerWidth < 768 ? 10 : 12
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
                 },
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            const label = context.label;
-                            const value = context.parsed;
+                            const value = context.parsed.x;
                             const percentage = ((value / totalClassified) * 100).toFixed(1);
-                            return `${label}: ${value} (${percentage}%)`;
+                            return `${value} comments (${percentage}%)`;
                         }
                     },
                     titleFont: {
@@ -788,13 +835,7 @@ function createCategoryChart(categoryCounts, totalClassified) {
                 }
             },
             animation: {
-                animateRotate: true,
                 duration: 1000
-            },
-            elements: {
-                arc: {
-                    borderWidth: window.innerWidth < 768 ? 1 : 2
-                }
             }
         }
     });

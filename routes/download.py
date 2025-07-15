@@ -1,11 +1,13 @@
-from flask import Blueprint, send_file, jsonify, current_app
+from flask import Blueprint, send_file, jsonify, current_app, request
 import os
 import io
+import base64
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+from PIL import Image as PILImage
 from routes.upload import upload_sessions
 
 download_bp = Blueprint('download', __name__)
@@ -50,7 +52,7 @@ def download_csv(session_id):
         current_app.logger.error(f"CSV download error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
-@download_bp.route('/sessions/<session_id>/download/pdf', methods=['GET'])
+@download_bp.route('/sessions/<session_id>/download/pdf', methods=['GET', 'POST'])
 def download_pdf_report(session_id):
     """Download the classification report as PDF"""
     try:
@@ -62,8 +64,15 @@ def download_pdf_report(session_id):
         if session.get('classified_data') is None:
             return jsonify({'error': 'No classification data available'}), 400
         
+        # Get chart image data if provided (for POST requests)
+        chart_image_data = None
+        if request.method == 'POST':
+            json_data = request.get_json()
+            if json_data and 'chart_image' in json_data:
+                chart_image_data = json_data['chart_image']
+        
         # Generate PDF report
-        pdf_buffer = generate_pdf_report(session)
+        pdf_buffer = generate_pdf_report(session, chart_image_data)
         
         # Generate filename
         original_filename = session['filename']
@@ -81,7 +90,7 @@ def download_pdf_report(session_id):
         current_app.logger.error(f"PDF download error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
-def generate_pdf_report(session):
+def generate_pdf_report(session, chart_image_data=None):
     """Generate a PDF report of the classification results"""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*inch)
@@ -104,7 +113,7 @@ def generate_pdf_report(session):
         spaceAfter=30,
         alignment=1  # Center alignment
     )
-    story.append(Paragraph("Survey Feedback Classification Report", title_style))
+    story.append(Paragraph("Comments Analysis Report", title_style))
     story.append(Spacer(1, 20))
     
     # File information
@@ -147,7 +156,38 @@ def generate_pdf_report(session):
     ]))
     
     story.append(table)
-    story.append(Spacer(1, 30))
+    story.append(Spacer(1, 20))
+    
+    # Add chart image if provided
+    if chart_image_data:
+        try:
+            # Decode base64 image data
+            image_data = chart_image_data.split(',')[1]  # Remove data:image/png;base64, prefix
+            image_bytes = base64.b64decode(image_data)
+            
+            # Create PIL Image to get dimensions
+            pil_image = PILImage.open(io.BytesIO(image_bytes))
+            
+            # Calculate appropriate size for PDF (max 6 inches wide)
+            max_width = 6 * inch
+            aspect_ratio = pil_image.height / pil_image.width
+            img_width = min(max_width, pil_image.width * 0.75)  # 0.75 points per pixel
+            img_height = img_width * aspect_ratio
+            
+            # Create ReportLab Image
+            chart_image = Image(io.BytesIO(image_bytes), width=img_width, height=img_height)
+            
+            story.append(Paragraph("Category Distribution Chart", styles['Heading2']))
+            story.append(Spacer(1, 10))
+            story.append(chart_image)
+            story.append(Spacer(1, 20))
+            
+        except Exception as e:
+            current_app.logger.error(f"Error adding chart to PDF: {e}")
+            # Continue without chart if there's an error
+            pass
+    
+    story.append(Spacer(1, 10))
     
     # Sample quotes for each category
     story.append(Paragraph("Sample Quotes by Category", styles['Heading2']))
