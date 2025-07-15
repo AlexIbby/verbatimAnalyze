@@ -26,6 +26,10 @@ app.register_blueprint(download_bp)
 def index():
     return render_template('index.html')
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204  # No Content
+
 def cleanup_old_files():
     """Clean up old uploaded files"""
     try:
