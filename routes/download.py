@@ -148,6 +148,8 @@ Your analysis should be:
 - Concise but insightful
 - Written in plain business language
 
+CRITICAL: Respond ONLY with a valid JSON object. Do not include any markdown formatting, explanations, or text outside the JSON. The response must start with { and end with }.
+
 Provide your response as a JSON object with these sections:
 {
   "key_insights": [
@@ -196,18 +198,39 @@ Please provide insights focusing on:
                 {"role": "user", "content": user_prompt}
             ],
             max_tokens=1000,
-            temperature=0.3
+            temperature=0.3,
+            response_format={"type": "json_object"}
         )
         
         # Parse the JSON response
         insights_text = response.choices[0].message.content.strip()
         
-        # Try to parse as JSON, fallback to text if it fails
+        # Try to extract JSON from the response (handle markdown code blocks)
         try:
+            # First, try direct JSON parsing
             insights = json.loads(insights_text)
             return insights
         except json.JSONDecodeError:
-            current_app.logger.warning("GPT-4o response was not valid JSON, using fallback")
+            # Try to extract JSON from markdown code blocks
+            import re
+            json_match = re.search(r'```json\s*(.*?)\s*```', insights_text, re.DOTALL)
+            if json_match:
+                try:
+                    insights = json.loads(json_match.group(1))
+                    return insights
+                except json.JSONDecodeError:
+                    pass
+            
+            # Try to find JSON object in the text (look for { ... })
+            json_match = re.search(r'\{.*\}', insights_text, re.DOTALL)
+            if json_match:
+                try:
+                    insights = json.loads(json_match.group(0))
+                    return insights
+                except json.JSONDecodeError:
+                    pass
+            
+            current_app.logger.warning(f"GPT-4o response was not valid JSON, using fallback. Response: {insights_text[:200]}...")
             return {
                 "key_insights": ["Analysis completed but formatting issue occurred"],
                 "priority_opportunities": ["Review detailed category breakdown for specific areas to address"],
