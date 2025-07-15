@@ -1,61 +1,34 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, Response
 from openai import OpenAI
 import pandas as pd
 import time
-import threading
 import json
-import redis
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from routes.upload import upload_sessions, get_redis_client
+from routes.upload import upload_sessions, classification_progress
 
 classify_bp = Blueprint('classify', __name__)
 
-def store_progress(session_id, progress_data):
-    """Store classification progress in Redis"""
-    r = get_redis_client()
-    r.set(f"progress:{session_id}", json.dumps(progress_data), ex=86400)  # 24 hours
-
-def get_progress(session_id):
-    """Get classification progress from Redis"""
-    r = get_redis_client()
-    progress_data = r.get(f"progress:{session_id}")
-    if progress_data:
-        return json.loads(progress_data)
-    return None
-
-def progress_exists(session_id):
-    """Check if progress exists in Redis"""
-    r = get_redis_client()
-    return r.exists(f"progress:{session_id}")
-
-# Legacy global variable for backward compatibility
-classification_progress = type('ClassificationProgress', (), {
-    '__contains__': lambda self, session_id: progress_exists(session_id),
-    '__getitem__': lambda self, session_id: get_progress(session_id),
-    '__setitem__': lambda self, session_id, data: store_progress(session_id, data)
-})()
-
 @classify_bp.route('/sessions/<session_id>/classify', methods=['POST'])
 def classify_comments(session_id):
-    """Start classification process in background and return immediately"""
+    """Classify comments synchronously with progress updates"""
     try:
         if session_id not in upload_sessions:
             return jsonify({'error': 'Session not found'}), 404
         
         session = upload_sessions[session_id]
         
-        current_app.logger.info(f"=== CLASSIFY DEBUG ===")
-        current_app.logger.info(f"Session ID: {session_id}")
-        current_app.logger.info(f"Session keys: {list(session.keys()) if session else 'None'}")
-        current_app.logger.info(f"Categories in session: {session.get('categories') if session else 'None'}")
+        if not session:
+            return jsonify({'error': 'Session data not found. Please upload a file first.'}), 400
         
         if not session.get('categories'):
-            current_app.logger.error(f"Categories not found in session for {session_id}")
             return jsonify({'error': 'Categories not defined. Please generate categories first.'}), 400
         
-        df = session['dataframe']
-        verbatim_col = session['verbatim_column']
-        categories = session['categories']
+        df = session.get('dataframe')
+        verbatim_col = session.get('verbatim_column')
+        categories = session.get('categories')
+        
+        if df is None:
+            return jsonify({'error': 'File data not found. Please upload a file first.'}), 400
         
         if not verbatim_col or verbatim_col not in df.columns:
             return jsonify({'error': 'Verbatim column not set or invalid'}), 400
@@ -68,37 +41,6 @@ def classify_comments(session_id):
         
         # Initialize progress tracking
         classification_progress[session_id] = {
-            'status': 'starting',
-            'progress': 0,
-            'total': len(df),
-            'current_step': 'Preparing classification...',
-            'completed': False
-        }
-        
-        # Start classification in background thread
-        thread = threading.Thread(
-            target=perform_classification_background,
-            args=(session_id, df, verbatim_col, categories)
-        )
-        thread.daemon = True
-        thread.start()
-        
-        # Return immediately with 202 Accepted
-        return jsonify({
-            'session_id': session_id,
-            'status': 'accepted',
-            'message': 'Classification started. Check /classify/progress for updates.'
-        }), 202
-        
-    except Exception as e:
-        current_app.logger.error(f"Classification error: {e}")
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-
-def perform_classification_background(session_id, df, verbatim_col, categories):
-    """Background task for classification"""
-    try:
-        # Update status to processing
-        classification_progress[session_id] = {
             'status': 'processing',
             'progress': 0,
             'total': len(df),
@@ -106,11 +48,10 @@ def perform_classification_background(session_id, df, verbatim_col, categories):
             'completed': False
         }
         
-        # Perform classification
+        # Perform classification synchronously
         classified_df = perform_classification(df, verbatim_col, categories, session_id)
         
         # Store classified data back to session
-        session = upload_sessions[session_id]
         session['classified_data'] = classified_df
         upload_sessions[session_id] = session
         
@@ -123,16 +64,55 @@ def perform_classification_background(session_id, df, verbatim_col, categories):
             'completed': True
         }
         
+        # Calculate category counts for response
+        category_counts = classified_df['Comment Category'].value_counts().to_dict()
+        
+        return jsonify({
+            'session_id': session_id,
+            'status': 'completed',
+            'total_classified': len(classified_df),
+            'category_counts': category_counts
+        }), 200
+        
     except Exception as e:
-        current_app.logger.error(f"Background classification failed: {e}")
-        classification_progress[session_id] = {
-            'status': 'failed',
-            'progress': 0,
-            'total': len(df),
-            'current_step': f'Classification failed: {str(e)}',
-            'completed': False,
-            'error': str(e)
-        }
+        current_app.logger.error(f"Classification error: {e}")
+        # Mark as failed
+        if session_id in classification_progress:
+            classification_progress[session_id] = {
+                'status': 'failed',
+                'progress': 0,
+                'total': classification_progress[session_id].get('total', 0),
+                'current_step': f'Classification failed: {str(e)}',
+                'completed': False,
+                'error': str(e)
+            }
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+@classify_bp.route('/sessions/<session_id>/progress', methods=['GET'])
+def progress_stream(session_id):
+    """Server-sent events endpoint for real-time progress updates"""
+    def generate():
+        if session_id not in upload_sessions:
+            yield f"data: {json.dumps({'error': 'Session not found'})}\n\n"
+            return
+        
+        # Stream progress updates
+        while True:
+            if session_id in classification_progress:
+                progress_data = classification_progress[session_id]
+                yield f"data: {json.dumps(progress_data)}\n\n"
+                
+                # Stop streaming when completed or failed
+                if progress_data.get('completed') or progress_data.get('status') in ['completed', 'failed']:
+                    break
+            else:
+                # No progress data yet
+                yield f"data: {json.dumps({'status': 'not_started', 'progress': 0})}\n\n"
+            
+            time.sleep(0.5)  # Update every 500ms
+    
+    return Response(generate(), mimetype='text/event-stream',
+                   headers={'Cache-Control': 'no-cache', 'Connection': 'keep-alive'})
 
 @classify_bp.route('/sessions/<session_id>/classify/progress', methods=['GET'])
 def get_classification_progress(session_id):

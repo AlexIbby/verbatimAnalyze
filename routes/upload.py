@@ -2,63 +2,16 @@ from flask import Blueprint, request, jsonify, current_app
 import os
 import uuid
 import pandas as pd
-import redis
-import json
-import pickle
 from werkzeug.utils import secure_filename
 from utils import allowed_file, detect_verbatim_col, load_excel_file
 
 upload_bp = Blueprint('upload', __name__)
 
-# Redis connection
-redis_client = None
+# Simple in-memory session storage
+upload_sessions = {}
 
-def get_redis_client():
-    global redis_client
-    if redis_client is None:
-        redis_client = redis.from_url(current_app.config['REDIS_URL'])
-    return redis_client
-
-def store_session(session_id, session_data):
-    """Store session data in Redis"""
-    r = get_redis_client()
-    # Store dataframe separately as pickle
-    df = session_data.pop('dataframe', None)
-    if df is not None:
-        r.set(f"session:{session_id}:dataframe", pickle.dumps(df), ex=86400)  # 24 hours
-    
-    # Store other session data as JSON
-    r.set(f"session:{session_id}:data", json.dumps(session_data), ex=86400)  # 24 hours
-
-def get_session(session_id):
-    """Get session data from Redis"""
-    r = get_redis_client()
-    
-    # Get session data
-    session_data = r.get(f"session:{session_id}:data")
-    if not session_data:
-        return None
-    
-    session_data = json.loads(session_data)
-    
-    # Get dataframe
-    df_data = r.get(f"session:{session_id}:dataframe")
-    if df_data:
-        session_data['dataframe'] = pickle.loads(df_data)
-    
-    return session_data
-
-def session_exists(session_id):
-    """Check if session exists in Redis"""
-    r = get_redis_client()
-    return r.exists(f"session:{session_id}:data")
-
-# Legacy global variable for backward compatibility
-upload_sessions = type('UploadSessions', (), {
-    '__contains__': lambda self, session_id: session_exists(session_id),
-    '__getitem__': lambda self, session_id: get_session(session_id),
-    '__setitem__': lambda self, session_id, data: store_session(session_id, data)
-})()
+# Progress tracking for classification
+classification_progress = {}
 
 @upload_bp.route('/upload', methods=['POST'])
 def upload_file():

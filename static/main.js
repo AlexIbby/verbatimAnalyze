@@ -422,16 +422,7 @@ async function classifyComments() {
     clearError('classify-error');
 
     try {
-        // Start polling for progress
-        setTimeout(pollClassificationProgress, 500);
-        
-        // Debug: Check session state before classification
-        console.log('=== PRE-CLASSIFICATION DEBUG ===');
-        const debugResponse = await fetch(`/sessions/${currentSessionId}/debug`);
-        const debugData = await debugResponse.json();
-        console.log('Session state before classification:', debugData);
-        
-        // Start the classification process (categories already confirmed)
+        // Start the classification process
         const response = await fetch(`/sessions/${currentSessionId}/classify`, {
             method: 'POST'
         });
@@ -442,6 +433,9 @@ async function classifyComments() {
             throw new Error(data.error || 'Classification failed');
         }
 
+        // Hide loading since classification is complete
+        document.getElementById('classify-loading').classList.remove('show');
+        
         displayResults(data);
         completeStep(4);
         activateStep(5);
@@ -453,47 +447,36 @@ async function classifyComments() {
     }
 }
 
-// Poll for classification progress
-async function pollClassificationProgress() {
+// Optional: Add server-sent events for progress (for future enhancement)
+function startProgressStream() {
     if (!currentSessionId) return;
-
-    try {
-        const response = await fetch(`/sessions/${currentSessionId}/classify/progress`);
-        const progress = await response.json();
-
-        if (response.ok && progress.status !== 'not_started') {
-            // Update progress bar
-            const progressBar = document.getElementById('classify-progress');
-            const progressText = document.getElementById('classify-progress-text');
-            const loadingElement = document.getElementById('classify-loading');
-            
-            if (progressBar) {
-                progressBar.style.width = `${progress.progress}%`;
-            }
-            
-            if (progressText) {
-                progressText.textContent = `${Math.round(progress.progress)}%`;
-            }
-            
-            // Update status text
-            const loadingText = loadingElement.querySelector('p');
-            if (loadingText) {
-                loadingText.textContent = progress.current_step || 'Classifying comments...';
-            }
-
-            // Continue polling if not completed
-            if (!progress.completed && progress.status !== 'completed') {
-                setTimeout(pollClassificationProgress, 1000); // Poll every second
-            } else {
-                // Classification completed, hide loading
-                document.getElementById('classify-loading').classList.remove('show');
-            }
+    
+    const eventSource = new EventSource(`/sessions/${currentSessionId}/progress`);
+    
+    eventSource.onmessage = function(event) {
+        const progress = JSON.parse(event.data);
+        
+        // Update progress bar
+        const progressBar = document.getElementById('classify-progress');
+        const progressText = document.getElementById('classify-progress-text');
+        
+        if (progressBar) {
+            progressBar.style.width = `${progress.progress}%`;
         }
-    } catch (error) {
-        console.error('Progress polling error:', error);
-        // Continue polling even if there's an error
-        setTimeout(pollClassificationProgress, 2000);
-    }
+        
+        if (progressText) {
+            progressText.textContent = `${Math.round(progress.progress)}%`;
+        }
+        
+        // Close connection when done
+        if (progress.completed || progress.status === 'completed' || progress.status === 'failed') {
+            eventSource.close();
+        }
+    };
+    
+    eventSource.onerror = function() {
+        eventSource.close();
+    };
 }
 
 // Display results
