@@ -43,7 +43,7 @@ def download_csv(session_id):
             csv_bytes,
             mimetype='text/csv',
             as_attachment=True,
-            download_name=csv_filename
+            attachment_filename=csv_filename
         )
         
     except Exception as e:
@@ -74,7 +74,7 @@ def download_pdf_report(session_id):
             pdf_buffer,
             mimetype='application/pdf',
             as_attachment=True,
-            download_name=pdf_filename
+            attachment_filename=pdf_filename
         )
         
     except Exception as e:

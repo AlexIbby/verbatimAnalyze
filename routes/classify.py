@@ -5,6 +5,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from routes.upload import upload_sessions
 
+# Store progress information for each session
+classification_progress = {}
+
 classify_bp = Blueprint('classify', __name__)
 
 @classify_bp.route('/sessions/<session_id>/classify', methods=['POST'])
@@ -26,12 +29,26 @@ def classify_comments(session_id):
         if not verbatim_col or verbatim_col not in df.columns:
             return jsonify({'error': 'Verbatim column not set or invalid'}), 400
         
+        # Initialize progress tracking
+        classification_progress[session_id] = {
+            'status': 'starting',
+            'progress': 0,
+            'total': len(df),
+            'current_step': 'Preparing classification...',
+            'completed': False
+        }
+        
         # Start classification process
         try:
-            classified_df = perform_classification(df, verbatim_col, categories)
+            classified_df = perform_classification(df, verbatim_col, categories, session_id)
             
             # Store classified data
             session['classified_data'] = classified_df
+            
+            # Mark as completed
+            classification_progress[session_id]['status'] = 'completed'
+            classification_progress[session_id]['progress'] = 100
+            classification_progress[session_id]['completed'] = True
             
             # Generate summary statistics
             category_counts = classified_df['Comment Category'].value_counts().to_dict()
@@ -61,6 +78,29 @@ def classify_comments(session_id):
         current_app.logger.error(f"Classification error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
+@classify_bp.route('/sessions/<session_id>/classify/progress', methods=['GET'])
+def get_classification_progress(session_id):
+    """Get the progress of classification process"""
+    try:
+        if session_id not in upload_sessions:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        # Return progress if available, otherwise default status
+        if session_id in classification_progress:
+            return jsonify(classification_progress[session_id]), 200
+        else:
+            return jsonify({
+                'status': 'not_started',
+                'progress': 0,
+                'total': 0,
+                'current_step': 'Not started',
+                'completed': False
+            }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Progress check error: {e}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
 @classify_bp.route('/sessions/<session_id>/classify/status', methods=['GET'])
 def get_classification_status(session_id):
     """Get the status of classification process"""
@@ -87,10 +127,14 @@ def get_classification_status(session_id):
         current_app.logger.error(f"Status check error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
-def perform_classification(df, verbatim_col, categories):
+def perform_classification(df, verbatim_col, categories, session_id):
     """Perform the actual classification of comments"""
     # Create a copy of the dataframe
     classified_df = df.copy()
+    
+    # Update progress
+    classification_progress[session_id]['current_step'] = 'Analyzing comments...'
+    classification_progress[session_id]['progress'] = 10
     
     # Get non-empty comments
     comments = df[verbatim_col].dropna().astype(str)
@@ -99,20 +143,29 @@ def perform_classification(df, verbatim_col, categories):
     if len(comments) == 0:
         # If no comments, create empty category column
         classified_df['Comment Category'] = 'No Comment'
+        classification_progress[session_id]['progress'] = 90
         return classified_df
     
     # Prepare category titles for LLM
     category_titles = [cat['title'] for cat in categories]
+    
+    # Update progress
+    classification_progress[session_id]['current_step'] = 'Classifying comments...'
+    classification_progress[session_id]['progress'] = 20
     
     # Initialize results
     classifications = {}
     
     if current_app.config.get('OPENAI_API_KEY'):
         # Use OpenAI for classification
-        classifications = classify_with_llm(comments, category_titles)
+        classifications = classify_with_llm(comments, category_titles, session_id)
     else:
         # Fallback to simple keyword matching
-        classifications = classify_with_keywords(comments, categories)
+        classifications = classify_with_keywords(comments, categories, session_id)
+    
+    # Update progress
+    classification_progress[session_id]['current_step'] = 'Finalizing results...'
+    classification_progress[session_id]['progress'] = 90
     
     # Apply classifications to dataframe
     classified_df['Comment Category'] = classified_df.apply(
@@ -122,7 +175,7 @@ def perform_classification(df, verbatim_col, categories):
     
     return classified_df
 
-def classify_with_llm(comments, category_titles):
+def classify_with_llm(comments, category_titles, session_id):
     """Classify comments using OpenAI API with batching for efficiency"""
     client = OpenAI(api_key=current_app.config['OPENAI_API_KEY'])
     classifications = {}
@@ -138,10 +191,16 @@ RULES:
     batch_size = 10
     comment_list = comments.tolist()
     comment_indices = comments.index.tolist()
+    total_batches = len(range(0, len(comment_list), batch_size))
     
-    for i in range(0, len(comment_list), batch_size):
+    for batch_num, i in enumerate(range(0, len(comment_list), batch_size)):
         batch_comments = comment_list[i:i + batch_size]
         batch_indices = comment_indices[i:i + batch_size]
+        
+        # Update progress
+        progress = 20 + int((batch_num / total_batches) * 60)  # Progress from 20% to 80%
+        classification_progress[session_id]['progress'] = progress
+        classification_progress[session_id]['current_step'] = f'Processing batch {batch_num + 1} of {total_batches}...'
         
         # Use ThreadPoolExecutor for parallel API calls within the batch
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -185,7 +244,7 @@ def classify_single_comment(client, system_message, comment):
         current_app.logger.error(f"Single comment classification failed: {e}")
         raise e
 
-def classify_with_keywords(comments, categories):
+def classify_with_keywords(comments, categories, session_id):
     """Fallback classification using keyword matching"""
     classifications = {}
     
@@ -215,8 +274,15 @@ def classify_with_keywords(comments, categories):
         
         keyword_map[title] = keywords
     
-    # Classify each comment
-    for idx, comment in comments.items():
+    # Classify each comment with progress tracking
+    total_comments = len(comments)
+    for i, (idx, comment) in enumerate(comments.items()):
+        # Update progress every 50 comments
+        if i % 50 == 0:
+            progress = 20 + int((i / total_comments) * 60)  # Progress from 20% to 80%
+            classification_progress[session_id]['progress'] = progress
+            classification_progress[session_id]['current_step'] = f'Classifying comment {i + 1} of {total_comments}...'
+        
         comment_lower = str(comment).lower()
         best_category = categories[0]['title']  # Default
         max_matches = 0

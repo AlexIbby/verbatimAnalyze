@@ -3,7 +3,14 @@
     "allow": [
       "Bash(venvScripts:*)",
       "Bash(pip install:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(pip show:*)",
+      "Bash(ls:*)",
+      "Bash(python:*)",
+      "Bash(git add:*)",
+      "Bash(grep:*)",
+      "Bash(taskkill:*)",
+      "Bash(kill:*)"
     ],
     "deny": []
   }

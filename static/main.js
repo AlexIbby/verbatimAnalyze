@@ -183,7 +183,7 @@ async function generateCategories() {
             throw new Error(data.error || 'Failed to generate categories');
         }
 
-        displayCategories(data.categories);
+        displayCategories(data.categories, data.sample_size, data.total_comments);
         completeStep(3);
         activateStep(4);
         document.getElementById('classify-btn').disabled = false;
@@ -197,9 +197,12 @@ async function generateCategories() {
 }
 
 // Display categories
-function displayCategories(categories) {
+function displayCategories(categories, sampleSize, totalComments) {
     const categoryList = document.getElementById('category-list');
-    categoryList.innerHTML = '<h4>Generated Categories:</h4>';
+    categoryList.innerHTML = `
+        <h4>Generated Categories:</h4>
+        <p class="info"><strong>Analysis:</strong> Examined ${sampleSize} of ${totalComments} comments to generate these categories</p>
+    `;
 
     categories.forEach(cat => {
         const categoryItem = document.createElement('div');
@@ -221,6 +224,10 @@ async function classifyComments() {
     clearError('classify-error');
 
     try {
+        // Start polling for progress
+        setTimeout(pollClassificationProgress, 500);
+        
+        // Start the classification process
         const response = await fetch(`/sessions/${currentSessionId}/classify`, {
             method: 'POST'
         });
@@ -238,8 +245,45 @@ async function classifyComments() {
     } catch (error) {
         showError('classify-error', error.message);
         document.getElementById('classify-btn').disabled = false;
-    } finally {
         document.getElementById('classify-loading').classList.remove('show');
+    }
+}
+
+// Poll for classification progress
+async function pollClassificationProgress() {
+    if (!currentSessionId) return;
+
+    try {
+        const response = await fetch(`/sessions/${currentSessionId}/classify/progress`);
+        const progress = await response.json();
+
+        if (response.ok && progress.status !== 'not_started') {
+            // Update progress bar
+            const progressBar = document.getElementById('classify-progress');
+            const loadingElement = document.getElementById('classify-loading');
+            
+            if (progressBar) {
+                progressBar.style.width = `${progress.progress}%`;
+            }
+            
+            // Update status text
+            const loadingText = loadingElement.querySelector('p');
+            if (loadingText) {
+                loadingText.textContent = progress.current_step || 'Classifying comments...';
+            }
+
+            // Continue polling if not completed
+            if (!progress.completed && progress.status !== 'completed') {
+                setTimeout(pollClassificationProgress, 1000); // Poll every second
+            } else {
+                // Classification completed, hide loading
+                document.getElementById('classify-loading').classList.remove('show');
+            }
+        }
+    } catch (error) {
+        console.error('Progress polling error:', error);
+        // Continue polling even if there's an error
+        setTimeout(pollClassificationProgress, 2000);
     }
 }
 
