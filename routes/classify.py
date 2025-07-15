@@ -185,6 +185,10 @@ def perform_classification(df, verbatim_col, categories, session_id):
     # Prepare category titles for LLM
     category_titles = [cat['title'] for cat in categories]
     
+    # Always ensure "No Comment" is available as a category
+    if "No Comment" not in category_titles:
+        category_titles.append("No Comment")
+    
     # Update progress
     classification_progress[session_id]['current_step'] = 'Classifying comments...'
     classification_progress[session_id]['progress'] = 20
@@ -205,7 +209,7 @@ def perform_classification(df, verbatim_col, categories, session_id):
     
     # Apply classifications to dataframe
     classified_df['Comment Category'] = classified_df.apply(
-        lambda row: get_classification_for_row(row, verbatim_col, classifications, category_titles[0]),
+        lambda row: get_classification_for_row(row, verbatim_col, classifications, category_titles, categories),
         axis=1
     )
     
@@ -220,8 +224,9 @@ def classify_with_llm(comments, category_titles, session_id):
     system_message = f"""You label comments. 
 RULES:
 1. Choose ONE of the following categories exactly: {', '.join(category_titles)}.
-2. Output only that category title.
-3. If the comment is unclear or doesn't fit any category well, choose the closest match."""
+2. Output only that category title exactly as written.
+3. If the comment is blank, empty, or just whitespace, respond with "No Comment".
+4. If the comment is unclear or doesn't fit any category well, choose the closest match from the list."""
     
     # Process comments in batches to respect rate limits
     batch_size = 20
@@ -249,6 +254,10 @@ RULES:
                 idx = future_to_index[future]
                 try:
                     classification = future.result()
+                    # Validate classification is in our expected categories
+                    if classification not in category_titles:
+                        current_app.logger.warning(f"LLM returned invalid category '{classification}', using default '{category_titles[0]}'")
+                        classification = category_titles[0]
                     classifications[idx] = classification
                 except Exception as e:
                     current_app.logger.error(f"Failed to classify comment {idx}: {e}")
@@ -333,7 +342,7 @@ def classify_with_keywords(comments, categories, session_id):
     
     return classifications
 
-def get_classification_for_row(row, verbatim_col, classifications, default_category):
+def get_classification_for_row(row, verbatim_col, classifications, category_titles, categories):
     """Get classification for a specific row"""
     comment = row[verbatim_col]
     
@@ -342,4 +351,11 @@ def get_classification_for_row(row, verbatim_col, classifications, default_categ
         return 'No Comment'
     
     # Get classification from our results
-    return classifications.get(row.name, default_category)
+    classification = classifications.get(row.name, category_titles[0] if category_titles else 'Other')
+    
+    # Validate that the classification is one of our expected categories
+    if classification not in category_titles:
+        current_app.logger.warning(f"Classification '{classification}' not in expected categories {category_titles}, using default")
+        return category_titles[0] if category_titles else 'Other'
+    
+    return classification

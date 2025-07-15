@@ -38,6 +38,14 @@ def suggest_categories(session_id):
         else:
             categories = generate_categories_with_llm(sample_comments)
         
+        # Ensure "No Comment" category is always present
+        has_no_comment = any(cat['title'] == 'No Comment' for cat in categories)
+        if not has_no_comment:
+            categories.append({
+                "title": "No Comment",
+                "description": "Empty, blank, or missing comments"
+            })
+        
         # Store categories in session
         session['categories'] = categories
         
@@ -73,16 +81,40 @@ def update_categories(session_id):
             if not isinstance(cat, dict) or 'title' not in cat or 'description' not in cat:
                 return jsonify({'error': 'Each category must have title and description'}), 400
         
+        # Ensure "No Comment" category is always present
+        has_no_comment = any(cat['title'] == 'No Comment' for cat in categories)
+        if not has_no_comment:
+            categories.append({
+                "title": "No Comment",
+                "description": "Empty, blank, or missing comments"
+            })
+        
         # Update session
         current_app.logger.info(f"=== UPDATING CATEGORIES ===")
         current_app.logger.info(f"Session ID: {session_id}")
         current_app.logger.info(f"Categories being stored: {categories}")
         
-        upload_sessions[session_id]['categories'] = categories
+        # Get session data, modify it, and store it back to Redis
+        session_data = upload_sessions[session_id]
+        if session_data is None:
+            current_app.logger.error(f"Session data is None for session {session_id}")
+            return jsonify({'error': 'Session data not found'}), 404
+        
+        # Create a copy to avoid reference issues
+        session_data_copy = dict(session_data)
+        session_data_copy['categories'] = categories
+        
+        # Store the updated session data
+        upload_sessions[session_id] = session_data_copy
         
         # Verify categories were stored
         stored_session = upload_sessions[session_id]
-        current_app.logger.info(f"Categories after storage: {stored_session.get('categories')}")
+        current_app.logger.info(f"Categories after storage: {stored_session.get('categories') if stored_session else 'Session is None'}")
+        
+        # Double-check the storage worked
+        if stored_session is None or stored_session.get('categories') is None:
+            current_app.logger.error(f"Failed to store categories for session {session_id}")
+            return jsonify({'error': 'Failed to save categories'}), 500
         
         return jsonify({
             'session_id': session_id,
@@ -133,6 +165,8 @@ Generate 5-6 distinct categories that cover all feedback types. Each category sh
 - Have a short title (≤4 words)
 - Have a clear description explaining what comments belong in this category
 - Be mutually exclusive (no overlap between categories)
+
+Note: A "No Comment" category will be automatically added for blank/empty responses, so focus on categorizing meaningful content.
 
 Return your response as a JSON list in this exact format:
 [{{"title": "Category Name", "description": "Clear description of what this category covers"}}]
@@ -199,5 +233,9 @@ def get_fallback_categories():
         {
             "title": "Positive Feedback",
             "description": "General praise, compliments, or positive experiences with the service"
+        },
+        {
+            "title": "No Comment",
+            "description": "Empty, blank, or missing comments"
         }
     ]
