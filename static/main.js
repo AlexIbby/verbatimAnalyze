@@ -204,6 +204,10 @@ let currentCategories = [];
 
 // Display categories
 function displayCategories(categories, sampleSize, totalComments) {
+    console.log('=== DISPLAY CATEGORIES START ===');
+    console.log('Categories received:', categories);
+    console.log('Sample size:', sampleSize, 'Total comments:', totalComments);
+    
     currentCategories = categories; // Store for editing
     const categoryList = document.getElementById('category-list');
     const samplePercentage = ((sampleSize / totalComments) * 100).toFixed(1);
@@ -214,26 +218,138 @@ function displayCategories(categories, sampleSize, totalComments) {
     `;
 
     categories.forEach((cat, index) => {
+        console.log(`Creating category ${index}:`, cat);
+        
+        // Create main category item container
         const categoryItem = document.createElement('div');
         categoryItem.className = 'category-item';
         categoryItem.setAttribute('data-index', index);
-        categoryItem.innerHTML = `
-            <button class="category-edit-btn" onclick="editCategory(${index})">Edit</button>
-            <div class="category-display">
-                <strong>${cat.title}</strong><br>
-                <small>${cat.description}</small>
-            </div>
-            <div class="category-edit-form">
-                <input type="text" class="category-title-input" value="${cat.title}" placeholder="Category Title">
-                <textarea class="category-description-input" placeholder="Category Description">${cat.description}</textarea>
-                <div class="category-edit-actions">
-                    <button class="btn" onclick="saveCategory(${index})">Save</button>
-                    <button class="btn" onclick="cancelEdit(${index})">Cancel</button>
-                </div>
+        categoryItem.style.cssText = `
+            position: relative !important;
+            background: white !important;
+            border: 1px solid #ddd !important;
+            padding: 15px 80px 15px 15px !important;
+            margin: 8px 0 !important;
+            border-radius: 6px !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+            transition: box-shadow 0.2s ease !important;
+        `;
+        
+        // Create display content
+        const displayDiv = document.createElement('div');
+        displayDiv.className = 'category-display';
+        displayDiv.innerHTML = `
+            <strong style="font-size: 16px; color: #333;">${cat.title}</strong><br>
+            <small style="color: #666; line-height: 1.4;">${cat.description}</small>
+        `;
+        
+        // Create edit form (initially hidden)
+        const editForm = document.createElement('div');
+        editForm.className = 'category-edit-form';
+        editForm.style.display = 'none';
+        editForm.innerHTML = `
+            <input type="text" class="category-title-input" value="${cat.title}" placeholder="Category Title" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+            <textarea class="category-description-input" placeholder="Category Description" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; height: 60px; resize: vertical;">${cat.description}</textarea>
+            <div class="category-edit-actions" style="margin-top: 10px;">
+                <button class="btn" onclick="saveCategory(${index})" style="margin-right: 5px;">Save</button>
+                <button class="btn" onclick="cancelEdit(${index})">Cancel</button>
             </div>
         `;
+        
+        // Create edit button with highly visible styling
+        const editButton = document.createElement('button');
+        editButton.className = 'category-edit-btn';
+        editButton.textContent = 'Edit';
+        editButton.setAttribute('data-category-index', index);
+        editButton.style.cssText = `
+            position: absolute !important;
+            top: 8px !important;
+            right: 8px !important;
+            background: #007bff !important;
+            color: white !important;
+            border: 2px solid #fff !important;
+            padding: 8px 12px !important;
+            border-radius: 4px !important;
+            cursor: pointer !important;
+            font-size: 14px !important;
+            font-weight: bold !important;
+            z-index: 1000 !important;
+            display: block !important;
+            visibility: visible !important;
+            min-width: 50px !important;
+            text-align: center !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+        `;
+        
+        // Add click event listener directly
+        editButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log(`Edit button clicked for category ${index}`);
+            editCategory(index);
+        });
+        
+        // Add hover effects
+        editButton.addEventListener('mouseenter', function() {
+            this.style.background = '#0056b3 !important';
+            this.style.transform = 'translateY(-1px)';
+            this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3) !important';
+        });
+        
+        editButton.addEventListener('mouseleave', function() {
+            this.style.background = '#007bff !important';
+            this.style.transform = 'translateY(0)';
+            this.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2) !important';
+        });
+        
+        // Assemble the category item
+        categoryItem.appendChild(displayDiv);
+        categoryItem.appendChild(editForm);
+        categoryItem.appendChild(editButton);
+        
+        // Add to the list
         categoryList.appendChild(categoryItem);
+        
+        console.log(`Category ${index} item created successfully`);
+        console.log('Edit button element:', editButton);
+        console.log('Category item element:', categoryItem);
     });
+    
+    // Verify all buttons were created and are visible
+    setTimeout(() => {
+        console.log('=== VERIFYING EDIT BUTTONS ===');
+        const allButtons = document.querySelectorAll('.category-edit-btn');
+        console.log(`Found ${allButtons.length} edit buttons out of ${categories.length} categories`);
+        
+        allButtons.forEach((btn, idx) => {
+            const rect = btn.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
+            console.log(`Button ${idx}: visible=${isVisible}, dimensions=${rect.width}x${rect.height}`);
+            
+            if (!isVisible) {
+                console.error(`Button ${idx} is not visible! Forcing visibility...`);
+                btn.style.cssText = `
+                    position: absolute !important;
+                    top: 8px !important;
+                    right: 8px !important;
+                    background: #dc3545 !important;
+                    color: white !important;
+                    border: 2px solid #fff !important;
+                    padding: 8px 12px !important;
+                    border-radius: 4px !important;
+                    cursor: pointer !important;
+                    font-size: 14px !important;
+                    font-weight: bold !important;
+                    z-index: 10000 !important;
+                    display: block !important;
+                    visibility: visible !important;
+                    opacity: 1 !important;
+                `;
+            }
+        });
+        
+        console.log('=== DISPLAY CATEGORIES COMPLETE ===');
+    }, 200);
 }
 
 // Classify comments
@@ -248,6 +364,9 @@ async function classifyComments() {
         // Start polling for progress
         setTimeout(pollClassificationProgress, 500);
         
+        console.log('=== SENDING CATEGORIES TO BACKEND ===');
+        console.log('Current categories being sent:', currentCategories);
+        
         // Send updated categories to backend first
         const updateResponse = await fetch(`/sessions/${currentSessionId}/categories`, {
             method: 'POST',
@@ -261,6 +380,9 @@ async function classifyComments() {
             const updateData = await updateResponse.json();
             throw new Error(updateData.error || 'Failed to update categories');
         }
+        
+        const updateData = await updateResponse.json();
+        console.log('Categories successfully updated on backend:', updateData);
         
         // Start the classification process
         const response = await fetch(`/sessions/${currentSessionId}/classify`, {
@@ -453,55 +575,127 @@ function simulateUploadProgress() {
 
 // Edit category
 function editCategory(index) {
+    console.log(`=== EDIT CATEGORY ${index} ===`);
     const categoryItem = document.querySelector(`[data-index="${index}"]`);
+    
+    if (!categoryItem) {
+        console.error(`Could not find category item with index ${index}`);
+        return;
+    }
+    
     const displayDiv = categoryItem.querySelector('.category-display');
     const editForm = categoryItem.querySelector('.category-edit-form');
     
+    if (!displayDiv || !editForm) {
+        console.error(`Could not find display div or edit form for category ${index}`);
+        return;
+    }
+    
+    console.log('Switching to edit mode for category:', currentCategories[index]);
+    
     categoryItem.classList.add('editing');
     displayDiv.style.display = 'none';
+    editForm.style.display = 'block';
     editForm.classList.add('show');
+    
+    // Focus on the title input
+    const titleInput = editForm.querySelector('.category-title-input');
+    if (titleInput) {
+        titleInput.focus();
+        titleInput.select();
+    }
+    
+    console.log('Edit mode activated successfully');
 }
 
 // Save category
 function saveCategory(index) {
+    console.log(`=== SAVE CATEGORY ${index} ===`);
     const categoryItem = document.querySelector(`[data-index="${index}"]`);
+    
+    if (!categoryItem) {
+        console.error(`Could not find category item with index ${index}`);
+        return;
+    }
+    
     const titleInput = categoryItem.querySelector('.category-title-input');
     const descriptionInput = categoryItem.querySelector('.category-description-input');
     const displayDiv = categoryItem.querySelector('.category-display');
     const editForm = categoryItem.querySelector('.category-edit-form');
     
+    if (!titleInput || !descriptionInput || !displayDiv || !editForm) {
+        console.error('Could not find required form elements');
+        return;
+    }
+    
+    const newTitle = titleInput.value.trim();
+    const newDescription = descriptionInput.value.trim();
+    
+    if (!newTitle || !newDescription) {
+        alert('Please provide both a title and description for the category.');
+        return;
+    }
+    
+    console.log('Saving category changes:', {
+        oldTitle: currentCategories[index].title,
+        newTitle: newTitle,
+        oldDescription: currentCategories[index].description,
+        newDescription: newDescription
+    });
+    
     // Update the category data
-    currentCategories[index].title = titleInput.value.trim();
-    currentCategories[index].description = descriptionInput.value.trim();
+    currentCategories[index].title = newTitle;
+    currentCategories[index].description = newDescription;
     
     // Update the display
     displayDiv.innerHTML = `
-        <strong>${currentCategories[index].title}</strong><br>
-        <small>${currentCategories[index].description}</small>
+        <strong style="font-size: 16px; color: #333;">${currentCategories[index].title}</strong><br>
+        <small style="color: #666; line-height: 1.4;">${currentCategories[index].description}</small>
     `;
     
-    // Hide edit form
+    // Hide edit form and show display
     categoryItem.classList.remove('editing');
     displayDiv.style.display = 'block';
+    editForm.style.display = 'none';
     editForm.classList.remove('show');
+    
+    console.log('Category saved successfully:', currentCategories[index]);
+    console.log('Updated categories array:', currentCategories);
 }
 
 // Cancel category edit
 function cancelEdit(index) {
+    console.log(`=== CANCEL EDIT CATEGORY ${index} ===`);
     const categoryItem = document.querySelector(`[data-index="${index}"]`);
+    
+    if (!categoryItem) {
+        console.error(`Could not find category item with index ${index}`);
+        return;
+    }
+    
     const displayDiv = categoryItem.querySelector('.category-display');
     const editForm = categoryItem.querySelector('.category-edit-form');
     const titleInput = categoryItem.querySelector('.category-title-input');
     const descriptionInput = categoryItem.querySelector('.category-description-input');
     
-    // Reset form values
+    if (!displayDiv || !editForm || !titleInput || !descriptionInput) {
+        console.error('Could not find required form elements');
+        return;
+    }
+    
+    console.log('Canceling edit and restoring original values');
+    
+    // Reset form values to original
     titleInput.value = currentCategories[index].title;
     descriptionInput.value = currentCategories[index].description;
     
-    // Hide edit form
+    // Hide edit form and show display
     categoryItem.classList.remove('editing');
     displayDiv.style.display = 'block';
+    editForm.style.display = 'none';
     editForm.classList.remove('show');
+    
+    console.log('Edit canceled successfully');
 }
 
 // Create category chart
