@@ -126,7 +126,18 @@ def load_excel_file(filepath):
         else:
             raise ValueError("Unsupported file format")
     except Exception as e:
-        # If it fails due to IRM protection, return specific error
-        if "IRM" in str(e) or "protection" in str(e).lower():
-            raise ValueError("IRM-protected. Please remove protection or supply a non-protected copy.")
-        raise e
+        error_msg = str(e).lower()
+        
+        # Check for common Excel file issues
+        if "not a zip file" in error_msg:
+            raise ValueError("File appears to be corrupted or in an unsupported Excel format. Please try saving as a new .xlsx file.")
+        elif "irm" in error_msg or "protection" in error_msg:
+            raise ValueError("File is IRM-protected. Please remove protection or supply a non-protected copy.")
+        elif "bad magic number" in error_msg:
+            raise ValueError("File format not recognized. Please ensure it's a valid Excel (.xlsx/.xls) or CSV file.")
+        elif "no such file" in error_msg:
+            raise ValueError("File not found or cannot be accessed.")
+        else:
+            # Log the original error for debugging but provide user-friendly message
+            current_app.logger.error(f"Excel file loading error: {e}")
+            raise ValueError(f"Unable to read file. Please ensure it's a valid Excel or CSV file. Error: {str(e)}")
