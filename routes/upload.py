@@ -160,7 +160,7 @@ def update_verbatim_column(session_id):
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 @upload_bp.route('/sessions/<session_id>', methods=['GET'])
-def get_session(session_id):
+def get_session_info(session_id):
     """Get session information"""
     try:
         if session_id not in upload_sessions:
