@@ -10,6 +10,9 @@ class Config:
     # OpenAI API key
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
     
+    # Redis configuration
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
+    
     # Cleanup settings
     CLEANUP_INTERVAL = timedelta(minutes=30)
     

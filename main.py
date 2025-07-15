@@ -38,7 +38,7 @@ def cleanup_old_files():
             return
         
         current_time = time.time()
-        cleanup_age = 30 * 60  # 30 minutes in seconds
+        cleanup_age = 24 * 60 * 60  # 24 hours in seconds (1 day)
         
         for filepath in glob.glob(os.path.join(upload_folder, "*")):
             if os.path.isfile(filepath):
