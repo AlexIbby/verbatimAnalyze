@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alex's Survey Analyzer</title>
+    <title>Alex's Comments Analyzer</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -328,8 +328,8 @@
 </head>
 <body>
     <div class="container">
-        <h1>Alex's Survey Analyzer</h1>
-        <p>Upload your survey data and automatically categorize verbatim comments using AI</p>
+        <h1>Alex's Comments Analyzer</h1>
+        <p>Upload your data file and automatically categorize verbatim comments using AI. <strong>For best results, use CSV format when possible.</strong></p>
 
         <!-- Step 1: File Upload -->
         <div class="step active" id="step-upload">
@@ -406,7 +406,7 @@
                 </div>
             </div>
             <div class="download-buttons" id="download-buttons" style="display: none;">
-                <button class="btn success" onclick="downloadCSV()">Download CSV</button>
+                <button class="btn success" onclick="downloadCSV()">📊 Download CSV</button>
                 <button class="btn warning" onclick="downloadPDF()">Download PDF Report</button>
             </div>
         </div>
