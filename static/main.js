@@ -48,6 +48,7 @@ function setupFileUpload() {
         uploadArea.classList.remove('dragover');
         const files = e.dataTransfer.files;
         if (files.length > 0) {
+            showFileSelected(files[0]);
             handleFile(files[0]);
         }
     });
@@ -57,8 +58,29 @@ function setupFileUpload() {
 function handleFileSelect(event) {
     const file = event.target.files[0];
     if (file) {
+        showFileSelected(file);
         handleFile(file);
     }
+}
+
+// Show file selected feedback
+function showFileSelected(file) {
+    const uploadArea = document.getElementById('upload-area');
+    const initialContent = document.getElementById('upload-initial-content');
+    const selectedContent = document.getElementById('file-selected-content');
+    const selectedFilename = document.getElementById('selected-filename');
+    
+    // Update filename
+    selectedFilename.textContent = file.name;
+    
+    // Show selected state
+    uploadArea.classList.add('file-selected');
+    initialContent.style.display = 'none';
+    selectedContent.style.display = 'block';
+    
+    // Clear any previous errors
+    clearError('upload-error');
+    document.getElementById('upload-success-message').style.display = 'none';
 }
 
 // Handle file upload
@@ -76,6 +98,11 @@ async function handleFile(file) {
         return;
     }
 
+    // Show uploading state
+    const uploadArea = document.getElementById('upload-area');
+    uploadArea.classList.remove('file-selected');
+    uploadArea.classList.add('uploading');
+    
     // Show loading
     document.getElementById('upload-loading').classList.add('show');
     clearError('upload-error');
@@ -101,15 +128,53 @@ async function handleFile(file) {
 
         // Success
         currentSessionId = data.session_id;
+        showUploadSuccess(data);
         displayFileInfo(data);
         completeStep(1);
         activateStep(2);
 
     } catch (error) {
         showError('upload-error', error.message);
+        // Reset upload area on error
+        resetUploadArea();
     } finally {
         document.getElementById('upload-loading').classList.remove('show');
     }
+}
+
+// Show upload success
+function showUploadSuccess(data) {
+    const uploadArea = document.getElementById('upload-area');
+    const uploadSuccess = document.getElementById('upload-success-message');
+    
+    // Update upload area appearance
+    uploadArea.classList.remove('uploading');
+    uploadArea.classList.add('uploaded');
+    
+    // Show success message
+    uploadSuccess.innerHTML = `
+        ✅ File uploaded successfully!<br>
+        <small>Filename: ${data.filename} | Rows: ${data.total_rows} | Columns: ${data.columns.length}</small>
+    `;
+    uploadSuccess.style.display = 'block';
+}
+
+// Reset upload area
+function resetUploadArea() {
+    const uploadArea = document.getElementById('upload-area');
+    const initialContent = document.getElementById('upload-initial-content');
+    const selectedContent = document.getElementById('file-selected-content');
+    
+    // Reset classes
+    uploadArea.classList.remove('file-selected', 'uploading', 'uploaded');
+    
+    // Reset content
+    initialContent.style.display = 'block';
+    selectedContent.style.display = 'none';
+    
+    // Reset file input
+    const fileInput = document.getElementById('file-input');
+    fileInput.value = '';
 }
 
 // Display file information

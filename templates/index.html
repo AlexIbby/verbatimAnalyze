@@ -43,14 +43,47 @@
             text-align: center;
             border-radius: 5px;
             cursor: pointer;
-            transition: border-color 0.3s;
+            transition: all 0.3s ease;
         }
         .upload-area:hover {
             border-color: #007bff;
+            background-color: #f8f9fa;
         }
         .upload-area.dragover {
             border-color: #007bff;
             background-color: #f0f8ff;
+            transform: scale(1.02);
+        }
+        .upload-area.file-selected {
+            border-color: #28a745;
+            background-color: #f0fff0;
+            border-style: solid;
+        }
+        .upload-area.uploading {
+            border-color: #ffc107;
+            background-color: #fffbf0;
+            border-style: solid;
+        }
+        .upload-area.uploaded {
+            border-color: #28a745;
+            background-color: #f0fff0;
+            border-style: solid;
+        }
+        .file-selected-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e7f3ff;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .upload-success {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f0fff0;
+            border-radius: 5px;
+            border-left: 4px solid #28a745;
+            color: #28a745;
+            font-weight: bold;
         }
         .btn {
             background: #007bff;
@@ -336,10 +369,17 @@
         <div class="step active" id="step-upload">
             <h3><span class="status-indicator pending" id="upload-status"></span>Step 1: Upload File</h3>
             <div class="upload-area" id="upload-area">
-                <p>Click here or drag and drop your Excel/CSV file</p>
-                <p><small>Supported formats: .xlsx, .xls, .csv (max 5MB)</small></p>
+                <div id="upload-initial-content">
+                    <p>Click here or drag and drop your Excel/CSV file</p>
+                    <p><small>Supported formats: .xlsx, .xls, .csv (max 5MB)</small></p>
+                </div>
+                <div id="file-selected-content" style="display: none;">
+                    <p>📁 File selected: <span id="selected-filename"></span></p>
+                    <p><small>Click anywhere to upload or choose a different file</small></p>
+                </div>
                 <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display: none;">
             </div>
+            <div id="upload-success-message" class="upload-success" style="display: none;"></div>
             <div class="error" id="upload-error"></div>
             <div class="loading" id="upload-loading">
                 <div class="spinner"></div>
