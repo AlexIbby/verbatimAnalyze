@@ -2,6 +2,7 @@ from flask import Blueprint, send_file, jsonify, current_app, request
 import os
 import io
 import base64
+import json
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
@@ -9,6 +10,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from PIL import Image as PILImage
 from routes.upload import upload_sessions
+from openai import OpenAI
 
 download_bp = Blueprint('download', __name__)
 
@@ -90,6 +92,133 @@ def download_pdf_report(session_id):
         current_app.logger.error(f"PDF download error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
+def generate_insights_with_gpt4o(session):
+    """Generate key insights and opportunities using GPT-4o"""
+    try:
+        if not current_app.config.get('OPENAI_API_KEY'):
+            return None
+        
+        client = OpenAI(api_key=current_app.config['OPENAI_API_KEY'])
+        
+        # Prepare data for analysis
+        df = session['classified_data']
+        categories = session['categories']
+        verbatim_col = session['verbatim_column']
+        
+        # Get category distribution
+        category_counts = df['Comment Category'].value_counts()
+        total_responses = len(df)
+        
+        # Get sample quotes per category (more for analysis)
+        category_data = []
+        for cat in categories:
+            title = cat['title']
+            description = cat['description']
+            count = category_counts.get(title, 0)
+            percentage = (count / total_responses) * 100 if total_responses > 0 else 0
+            
+            # Get more sample quotes for better analysis
+            category_df = df[df['Comment Category'] == title]
+            sample_comments = []
+            if len(category_df) > 0:
+                samples = category_df[verbatim_col].dropna().astype(str)
+                samples = samples[samples.str.len() > 0].head(8).tolist()
+                sample_comments = samples
+            
+            category_data.append({
+                'title': title,
+                'description': description,
+                'count': count,
+                'percentage': percentage,
+                'samples': sample_comments
+            })
+        
+        # Prepare analysis prompt
+        analysis_data = {
+            'total_responses': total_responses,
+            'categories': category_data,
+            'verbatim_column': verbatim_col
+        }
+        
+        system_prompt = """You are an expert customer experience analyst. Analyze survey data to provide actionable insights and opportunities.
+
+Your analysis should be:
+- Clear and actionable for business decision-makers
+- Focused on key issues and opportunities
+- Concise but insightful
+- Written in plain business language
+
+Provide your response as a JSON object with these sections:
+{
+  "key_insights": [
+    "3-5 bullet points of the most important findings"
+  ],
+  "priority_opportunities": [
+    "3-4 specific, actionable recommendations"
+  ],
+  "sentiment_summary": "Brief overview of overall customer sentiment",
+  "risk_areas": [
+    "2-3 areas that need immediate attention"
+  ]
+}
+
+Focus on patterns, trends, and actionable recommendations rather than just repeating statistics."""
+
+        user_prompt = f"""Analyze this customer feedback data:
+
+SURVEY DETAILS:
+- Total responses: {analysis_data['total_responses']}
+- Feedback column: {analysis_data['verbatim_column']}
+
+CATEGORY BREAKDOWN:
+"""
+
+        for cat in category_data:
+            user_prompt += f"""
+{cat['title']} ({cat['count']} responses, {cat['percentage']:.1f}%):
+- Description: {cat['description']}
+- Sample comments: {cat['samples'][:5]}  # Limit samples to avoid token limits
+"""
+
+        user_prompt += """
+
+Please provide insights focusing on:
+1. What are the biggest pain points for customers?
+2. What opportunities exist to improve customer experience?
+3. Which issues should be prioritized based on frequency and impact?
+4. What positive trends can be built upon?"""
+
+        # Make the API call
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.3
+        )
+        
+        # Parse the JSON response
+        insights_text = response.choices[0].message.content.strip()
+        
+        # Try to parse as JSON, fallback to text if it fails
+        try:
+            insights = json.loads(insights_text)
+            return insights
+        except json.JSONDecodeError:
+            current_app.logger.warning("GPT-4o response was not valid JSON, using fallback")
+            return {
+                "key_insights": ["Analysis completed but formatting issue occurred"],
+                "priority_opportunities": ["Review detailed category breakdown for specific areas to address"],
+                "sentiment_summary": "Mixed feedback with areas for improvement identified",
+                "risk_areas": ["Review individual categories for specific issues"]
+            }
+            
+    except Exception as e:
+        current_app.logger.error(f"Error generating insights with GPT-4o: {e}")
+        return None
+
 def generate_pdf_report(session, chart_image_data=None):
     """Generate a PDF report of the classification results"""
     buffer = io.BytesIO()
@@ -121,6 +250,46 @@ def generate_pdf_report(session, chart_image_data=None):
     story.append(Paragraph(f"<b>Total Responses:</b> {len(df)}", styles['Normal']))
     story.append(Paragraph(f"<b>Verbatim Column:</b> {verbatim_col}", styles['Normal']))
     story.append(Spacer(1, 20))
+    
+    # Generate and add insights if OpenAI is available
+    insights = generate_insights_with_gpt4o(session)
+    if insights:
+        story.append(Paragraph("Executive Summary", styles['Heading2']))
+        story.append(Spacer(1, 10))
+        
+        # Sentiment Summary
+        if insights.get('sentiment_summary'):
+            story.append(Paragraph(f"<b>Overall Sentiment:</b> {insights['sentiment_summary']}", styles['Normal']))
+            story.append(Spacer(1, 10))
+        
+        # Key Insights
+        if insights.get('key_insights'):
+            story.append(Paragraph("<b>Key Insights:</b>", styles['Normal']))
+            for insight in insights['key_insights']:
+                story.append(Paragraph(f"• {insight}", styles['Normal']))
+            story.append(Spacer(1, 10))
+        
+        # Priority Opportunities
+        if insights.get('priority_opportunities'):
+            story.append(Paragraph("<b>Priority Opportunities:</b>", styles['Normal']))
+            for opportunity in insights['priority_opportunities']:
+                story.append(Paragraph(f"• {opportunity}", styles['Normal']))
+            story.append(Spacer(1, 10))
+        
+        # Risk Areas
+        if insights.get('risk_areas'):
+            story.append(Paragraph("<b>Areas Requiring Attention:</b>", styles['Normal']))
+            for risk in insights['risk_areas']:
+                story.append(Paragraph(f"• {risk}", styles['Normal']))
+            story.append(Spacer(1, 15))
+        
+        story.append(Spacer(1, 20))
+    else:
+        # Show a note if insights are not available
+        if not current_app.config.get('OPENAI_API_KEY'):
+            story.append(Paragraph("Enhanced Analysis", styles['Heading2']))
+            story.append(Paragraph("<i>Note: Enhanced insights and recommendations are available when OpenAI API key is configured.</i>", styles['Normal']))
+            story.append(Spacer(1, 20))
     
     # Category summary table
     story.append(Paragraph("Category Summary", styles['Heading2']))
