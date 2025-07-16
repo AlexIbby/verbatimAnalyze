@@ -211,28 +211,32 @@ def get_fallback_categories():
     """Fallback categories when LLM is not available"""
     return [
         {
-            "title": "Service Quality",
-            "description": "Comments about the quality of service delivery, staff performance, or service standards"
+            "title": "Eligibility Issues",
+            "description": "Comments about eligibility requirements, qualification criteria, or application requirements"
         },
         {
-            "title": "Wait Times",
-            "description": "Comments about waiting times, delays, scheduling, or appointment availability"
+            "title": "Technical Issues",
+            "description": "Comments about system errors, login problems, site crashes, or technical functionality"
         },
         {
-            "title": "Accessibility",
-            "description": "Comments about physical access, digital access, or accommodation needs"
-        },
-        {
-            "title": "Communication",
-            "description": "Comments about information sharing, clarity of communication, or responsiveness"
+            "title": "Usability Issues",
+            "description": "Comments about user interface problems, navigation difficulties, or confusing design"
         },
         {
             "title": "Process Issues",
-            "description": "Comments about procedures, paperwork, bureaucracy, or system problems"
+            "description": "Comments about application procedures, documentation requirements, or workflow problems"
         },
         {
-            "title": "Positive Feedback",
-            "description": "General praise, compliments, or positive experiences with the service"
+            "title": "Communication Issues",
+            "description": "Comments about unclear information, lack of guidance, or poor communication"
+        },
+        {
+            "title": "Positive Remark",
+            "description": "Positive feedback, praise, or compliments with no issues mentioned"
+        },
+        {
+            "title": "Other",
+            "description": "Comments that don't fit into specific issue categories but aren't positive remarks"
         },
         {
             "title": "No Comment",

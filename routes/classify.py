@@ -5,6 +5,7 @@ import time
 import json
 import threading
 import asyncio
+import numpy as np
 from routes.upload import upload_sessions, classification_progress
 
 classify_bp = Blueprint('classify', __name__)
@@ -274,18 +275,29 @@ async def classify_with_llm_async(comments, category_titles, session_id):
     semaphore = asyncio.Semaphore(10)
     
     # Prepare system message for batch processing
-    system_message = f"""You are a comment classifier. Classify each comment in the batch.
+    system_message = f"""You are an expert at analyzing customer feedback to identify specific issues and problems.
 
-RULES:
-1. Choose ONE of the following categories for each comment: {', '.join(category_titles)}.
-2. Output ONLY a JSON array with the category for each comment in order.
-3. If a comment is blank, empty, or just whitespace, use "No Comment".
-4. If a comment is unclear or doesn't fit any category well, choose the closest match.
+Your task is to classify comments about an online application process. Focus on identifying ISSUES and PROBLEMS that prevented users from completing their goals.
 
-Example format: ["Category1", "Category2", "No Comment"]"""
+CATEGORIES: {', '.join(category_titles)}
+
+CLASSIFICATION RULES:
+1. If the comment describes a SPECIFIC PROBLEM or ISSUE (eligibility, technical, usability, process), classify it accordingly
+2. If the comment is POSITIVE or PRAISE with no issues mentioned, use "Positive Remark" (if available)
+3. If the comment doesn't fit any specific issue category, use "Other" (if available)
+4. If the comment is blank/empty, use "No Comment"
+
+EXAMPLES:
+- "Good service" → "Positive Remark" (no issue mentioned)
+- "Couldn't log in" → "Technical Issue" (specific technical problem)
+- "Eligibility requirements unclear" → "Eligibility Issue" (specific eligibility problem)
+- "Hard to find the submit button" → "Usability Issue" (specific UI problem)
+
+Output a JSON object with "categories" array and "confidence" array (0-100 for each):
+{{"categories": ["Category1", "Category2"], "confidence": [95, 80]}}"""
     
     # Process comments in batches - send multiple comments per API call
-    batch_size = 15  # Reduced batch size for better JSON parsing reliability
+    batch_size = 10  # Reduced batch size to avoid token limits with confidence scores
     comment_list = comments.tolist()
     comment_indices = comments.index.tolist()
     total_batches = len(range(0, len(comment_list), batch_size))
@@ -345,15 +357,15 @@ async def classify_batch_async(client, semaphore, system_message, batch_comments
             # Create user message with numbered comments
             user_message = "\n".join([f"{i+1}. {comment}" for i, comment in enumerate(batch_comments)])
             
-            # Use gpt-4.1-mini for best cost efficiency and speed
+            # Use gpt-4o for best classification accuracy
             response = await client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": user_message}
                 ],
                 response_format={"type": "json_object"},
-                max_tokens=100,
+                max_tokens=200,
                 temperature=0
             )
             
@@ -361,27 +373,49 @@ async def classify_batch_async(client, semaphore, system_message, batch_comments
             result_text = response.choices[0].message.content.strip()
             
             try:
-                # Try to parse as JSON array first
-                if result_text.startswith('['):
-                    categories_result = json.loads(result_text)
-                else:
-                    # Try to parse as JSON object with 'categories' key
+                # Try to parse as JSON object with categories and confidence
+                if result_text.startswith('{'):
                     result_obj = json.loads(result_text)
-                    categories_result = result_obj.get('categories', result_obj.get('results', []))
+                    categories_result = result_obj.get('categories', [])
+                    confidence_result = result_obj.get('confidence', [])
+                else:
+                    # Fallback to array format (legacy)
+                    categories_result = json.loads(result_text)
+                    confidence_result = [None] * len(categories_result)
                 
-                # Map results to indices
+                # Map results to indices - ensure we have the right number of results
                 batch_classifications = {}
-                for i, (idx, category) in enumerate(zip(batch_indices, categories_result)):
+                if len(categories_result) != len(batch_indices):
+                    current_app.logger.warning(f"Batch {batch_num}: Expected {len(batch_indices)} results, got {len(categories_result)}")
+                
+                for i, idx in enumerate(batch_indices):
                     if i < len(categories_result):
+                        category = categories_result[i]
+                        confidence = confidence_result[i] if i < len(confidence_result) else None
+                        
+                        # Use semantic validation for low confidence or invalid categories
+                        if confidence is not None and confidence < 70:
+                            current_app.logger.info(f"Low confidence ({confidence}%) for comment {idx}, using semantic validation")
+                            category, confidence, reason = await find_best_category_semantic(
+                                client, batch_comments[i], category_titles, category, confidence
+                            )
+                        
                         # Validate category
                         if category in category_titles:
                             batch_classifications[idx] = category
                         else:
-                            current_app.logger.warning(f"Invalid category '{category}' returned, using default")
-                            batch_classifications[idx] = category_titles[0]
+                            current_app.logger.warning(f"Invalid category '{category}' returned for comment {idx}, using semantic validation")
+                            category, confidence, reason = await find_best_category_semantic(
+                                client, batch_comments[i], category_titles
+                            )
+                            batch_classifications[idx] = category
                     else:
                         # Fallback if not enough results
-                        batch_classifications[idx] = category_titles[0]
+                        current_app.logger.warning(f"Missing result for comment {idx}, using semantic validation")
+                        category, confidence, reason = await find_best_category_semantic(
+                            client, batch_comments[i], category_titles
+                        )
+                        batch_classifications[idx] = category
                 
                 return batch_classifications
                 
@@ -430,9 +464,9 @@ async def classify_single_comment_async(client, semaphore, system_message, comme
     """Classify a single comment asynchronously"""
     async with semaphore:
         try:
-            # Use gpt-4.1-mini for best cost efficiency and speed
+            # Use gpt-4o for best classification accuracy
             response = await client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": str(comment)}
@@ -545,3 +579,66 @@ def get_classification_for_row(row, verbatim_col, classifications, category_titl
         return category_titles[0] if category_titles else 'Other'
     
     return classification
+
+async def find_best_category_semantic(client, comment, category_titles, original_category=None, confidence=None):
+    """Find the best category using semantic similarity across all categories"""
+    try:
+        # Only do semantic re-classification if confidence is low or not provided
+        confidence_threshold = 70  # Only re-classify if confidence < 70%
+        if confidence is not None and confidence >= confidence_threshold:
+            return original_category, confidence, "High confidence, skipping semantic check"
+        
+        # Create embedding for the comment
+        comment_embedding_response = await client.embeddings.create(
+            input=str(comment),
+            model="text-embedding-3-small"
+        )
+        comment_embedding = np.array(comment_embedding_response.data[0].embedding)
+        
+        # Calculate similarity with all categories
+        similarities = {}
+        for category in category_titles:
+            category_desc = get_category_description(category, category_titles)
+            
+            category_embedding_response = await client.embeddings.create(
+                input=f"{category}: {category_desc}",
+                model="text-embedding-3-small"
+            )
+            category_embedding = np.array(category_embedding_response.data[0].embedding)
+            
+            # Calculate cosine similarity
+            similarity = np.dot(comment_embedding, category_embedding) / (
+                np.linalg.norm(comment_embedding) * np.linalg.norm(category_embedding)
+            )
+            similarities[category] = similarity
+        
+        # Find best match
+        best_category = max(similarities, key=similarities.get)
+        best_similarity = similarities[best_category]
+        
+        # Log if semantic analysis suggests different category
+        if original_category and best_category != original_category:
+            current_app.logger.info(f"Semantic analysis suggests '{best_category}' (sim: {best_similarity:.3f}) instead of '{original_category}' (sim: {similarities.get(original_category, 0):.3f}) for: '{comment}'")
+        
+        # Convert similarity to confidence percentage
+        semantic_confidence = int(best_similarity * 100)
+        
+        return best_category, semantic_confidence, f"Semantic similarity: {best_similarity:.3f}"
+        
+    except Exception as e:
+        current_app.logger.error(f"Semantic category selection failed: {e}")
+        return original_category, confidence, f"Semantic analysis failed: {e}"
+
+def get_category_description(category_title, category_titles):
+    """Get a description for semantic validation"""
+    descriptions = {
+        "Eligibility Issues": "problems with qualification requirements or application eligibility",
+        "Technical Issues": "system errors, website problems, login failures, technical malfunctions",
+        "Usability Issues": "user interface problems, navigation difficulties, confusing design",
+        "Process Issues": "application procedures, documentation requirements, workflow problems",
+        "Communication Issues": "unclear information, lack of guidance, poor communication",
+        "Positive Remark": "positive feedback, praise, compliments, satisfaction, good experience",
+        "Other": "miscellaneous comments that don't fit specific issue categories",
+        "No Comment": "empty, blank, or missing responses"
+    }
+    return descriptions.get(category_title, category_title)
