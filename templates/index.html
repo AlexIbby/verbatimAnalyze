@@ -306,6 +306,32 @@
             max-height: 500px;
             position: relative;
             overflow: hidden;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            margin-right: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-wrapper {
+            position: relative;
+            height: calc(100% - 40px);
+            width: 100%;
+            overflow: hidden;
+        }
+        .chart-wrapper canvas {
+            display: block !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            box-sizing: border-box !important;
+        }
+        .chart-wrapper > div {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            overflow: hidden !important;
         }
         .stats-container {
             background: white;
@@ -316,13 +342,15 @@
         @media (max-width: 768px) {
             .results-container {
                 grid-template-columns: 1fr;
+                gap: 20px;
             }
             .chart-container {
                 height: 300px;
                 min-height: 250px;
                 max-height: 350px;
                 padding: 15px;
-                margin-bottom: 20px;
+                margin-bottom: 30px;
+                margin-right: 0;
             }
             .stats-container {
                 padding: 15px;
@@ -335,7 +363,8 @@
                 min-height: 200px;
                 max-height: 300px;
                 padding: 10px;
-                margin-bottom: 20px;
+                margin-bottom: 30px;
+                margin-right: 0;
             }
             .stats-container {
                 padding: 10px;
@@ -442,8 +471,8 @@
             <div class="results-container" id="results-container" style="display: none;">
                 <div class="chart-container">
                     <h4>Category Distribution</h4>
-                    <div style="position: relative; height: calc(100% - 40px); width: 100%;">
-                        <canvas id="categoryChart"></canvas>
+                    <div class="chart-wrapper">
+                        <canvas id="categoryChart" style="width: 100% !important; height: 100% !important;"></canvas>
                     </div>
                 </div>
                 <div class="stats-container">

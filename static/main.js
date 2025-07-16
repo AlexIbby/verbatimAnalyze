@@ -1031,7 +1031,11 @@ function refreshCategoryDisplay() {
 
 // Create category chart
 function createCategoryChart(categoryCounts, totalClassified) {
-    const ctx = document.getElementById('categoryChart').getContext('2d');
+    const canvas = document.getElementById('categoryChart');
+    const ctx = canvas.getContext('2d');
+    
+    // Let Chart.js handle the sizing automatically with CSS
+    console.log('Creating chart with responsive sizing');
     
     const labels = Object.keys(categoryCounts);
     const data = Object.values(categoryCounts);
@@ -1070,7 +1074,7 @@ function createCategoryChart(categoryCounts, totalClassified) {
                     top: 10,
                     bottom: 10,
                     left: 10,
-                    right: 10
+                    right: 30
                 }
             },
             scales: {
