@@ -345,9 +345,9 @@ async def classify_batch_async(client, semaphore, system_message, batch_comments
             # Create user message with numbered comments
             user_message = "\n".join([f"{i+1}. {comment}" for i, comment in enumerate(batch_comments)])
             
-            # Use gpt-4.1-nano for best cost efficiency and speed
+            # Use gpt-4.1-mini for best cost efficiency and speed
             response = await client.chat.completions.create(
-                model="gpt-4.1-nano",
+                model="gpt-4.1-mini",
                 messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": user_message}
@@ -430,9 +430,9 @@ async def classify_single_comment_async(client, semaphore, system_message, comme
     """Classify a single comment asynchronously"""
     async with semaphore:
         try:
-            # Use gpt-4.1-nano for best cost efficiency and speed
+            # Use gpt-4.1-mini for best cost efficiency and speed
             response = await client.chat.completions.create(
-                model="gpt-4.1-nano",
+                model="gpt-4.1-mini",
                 messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": str(comment)}
