@@ -467,16 +467,27 @@ function startProgressStream() {
             progressText.textContent = `${Math.round(progress.progress)}%`;
         }
         
-        // Update step text
+        // Update step text with detailed information
         const stepText = document.getElementById('classify-step-text');
         if (stepText && progress.current_step) {
             stepText.textContent = progress.current_step;
+        }
+        
+        // Update detailed progress information (only if processing)
+        if (progress.status === 'processing') {
+            updateDetailedProgress(progress);
         }
         
         // Handle completion
         if (progress.completed || progress.status === 'completed') {
             eventSource.close();
             document.getElementById('classify-loading').classList.remove('show');
+            
+            // Clean up detailed progress display
+            const detailedProgressElement = document.getElementById('detailed-progress');
+            if (detailedProgressElement) {
+                detailedProgressElement.remove();
+            }
             
             // Fetch final results
             fetchClassificationResults();
@@ -486,6 +497,13 @@ function startProgressStream() {
         if (progress.status === 'failed') {
             eventSource.close();
             document.getElementById('classify-loading').classList.remove('show');
+            
+            // Clean up detailed progress display
+            const detailedProgressElement = document.getElementById('detailed-progress');
+            if (detailedProgressElement) {
+                detailedProgressElement.remove();
+            }
+            
             showError('classify-error', progress.error || 'Classification failed');
             document.getElementById('classify-btn').disabled = false;
         }
@@ -494,6 +512,70 @@ function startProgressStream() {
     eventSource.onerror = function() {
         eventSource.close();
     };
+}
+
+// Update detailed progress information
+function updateDetailedProgress(progress) {
+    // Update or create detailed progress display
+    let detailedProgressElement = document.getElementById('detailed-progress');
+    
+    if (!detailedProgressElement) {
+        // Create detailed progress element if it doesn't exist
+        const classifyLoading = document.getElementById('classify-loading');
+        detailedProgressElement = document.createElement('div');
+        detailedProgressElement.id = 'detailed-progress';
+        detailedProgressElement.style.cssText = `
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        `;
+        
+        if (classifyLoading) {
+            classifyLoading.appendChild(detailedProgressElement);
+        }
+    }
+    
+    // Format time remaining
+    function formatTimeRemaining(seconds) {
+        if (!seconds || seconds <= 0) return 'Calculating...';
+        
+        if (seconds < 60) {
+            return `${seconds}s`;
+        } else if (seconds < 3600) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            return `${minutes}m ${remainingSeconds}s`;
+        } else {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+    }
+    
+    // Update content
+    let detailedHTML = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">';
+    
+    // Left column
+    detailedHTML += '<div>';
+    detailedHTML += `<div style="margin-bottom: 8px;"><strong>Progress:</strong> ${progress.processed || 0} / ${progress.total || 0} comments</div>`;
+    detailedHTML += `<div style="margin-bottom: 8px;"><strong>Remaining:</strong> ${progress.remaining || 0} comments</div>`;
+    detailedHTML += '</div>';
+    
+    // Right column
+    detailedHTML += '<div>';
+    detailedHTML += `<div style="margin-bottom: 8px;"><strong>Processing rate:</strong> ${progress.processing_rate || 0} comments/sec</div>`;
+    detailedHTML += `<div style="margin-bottom: 8px;"><strong>Time remaining:</strong> ${formatTimeRemaining(progress.estimated_time_remaining)}</div>`;
+    detailedHTML += '</div>';
+    
+    detailedHTML += '</div>';
+    
+    detailedProgressElement.innerHTML = detailedHTML;
+    
+    // Show the element
+    detailedProgressElement.style.display = 'block';
 }
 
 // Fetch classification results when completed

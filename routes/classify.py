@@ -46,8 +46,13 @@ def classify_comments(session_id):
             'status': 'processing',
             'progress': 0,
             'total': len(df),
+            'processed': 0,
+            'remaining': len(df),
             'current_step': 'Starting classification...',
-            'completed': False
+            'completed': False,
+            'start_time': time.time(),
+            'estimated_time_remaining': None,
+            'processing_rate': 0
         }
         current_app.logger.info(f"Initialized progress tracking for session {session_id}, total rows: {len(df)}")
         
@@ -174,8 +179,13 @@ def perform_classification_async(app, df, verbatim_col, categories, session_id):
                 'status': 'completed',
                 'progress': 100,
                 'total': len(df),
+                'processed': len(df),
+                'remaining': 0,
                 'current_step': 'Classification completed',
-                'completed': True
+                'completed': True,
+                'start_time': classification_progress[session_id].get('start_time', time.time()),
+                'estimated_time_remaining': 0,
+                'processing_rate': classification_progress[session_id].get('processing_rate', 0)
             }
             current_app.logger.info(f"Classification completed for session {session_id}")
             
@@ -188,8 +198,13 @@ def perform_classification_async(app, df, verbatim_col, categories, session_id):
                 'status': 'failed',
                 'progress': 0,
                 'total': classification_progress[session_id].get('total', 0),
+                'processed': classification_progress[session_id].get('processed', 0),
+                'remaining': classification_progress[session_id].get('remaining', 0),
                 'current_step': f'Classification failed: {str(e)}',
                 'completed': False,
+                'start_time': classification_progress[session_id].get('start_time', time.time()),
+                'estimated_time_remaining': None,
+                'processing_rate': classification_progress[session_id].get('processing_rate', 0),
                 'error': str(e)
             }
 
@@ -301,10 +316,31 @@ async def classify_batch_async(client, semaphore, system_message, batch_comments
     """Classify a batch of comments asynchronously"""
     async with semaphore:
         try:
-            # Update progress
+            # Update progress with detailed information
             progress = 20 + int((batch_num / total_batches) * 60)  # Progress from 20% to 80%
-            classification_progress[session_id]['progress'] = progress
-            classification_progress[session_id]['current_step'] = f'Processing batch {batch_num + 1} of {total_batches}...'
+            processed = batch_num * len(batch_comments)
+            total_comments = classification_progress[session_id]['total']
+            remaining = total_comments - processed
+            
+            # Calculate processing rate and time estimation
+            start_time = classification_progress[session_id].get('start_time', time.time())
+            elapsed_time = time.time() - start_time
+            
+            if elapsed_time > 0 and processed > 0:
+                processing_rate = processed / elapsed_time  # comments per second
+                estimated_time_remaining = remaining / processing_rate if processing_rate > 0 else None
+            else:
+                processing_rate = 0
+                estimated_time_remaining = None
+            
+            classification_progress[session_id].update({
+                'progress': progress,
+                'processed': processed,
+                'remaining': remaining,
+                'current_step': f'Processing batch {batch_num + 1} of {total_batches} ({processed}/{total_comments} comments)',
+                'processing_rate': round(processing_rate, 2),
+                'estimated_time_remaining': round(estimated_time_remaining) if estimated_time_remaining else None
+            })
             
             # Create user message with numbered comments
             user_message = "\n".join([f"{i+1}. {comment}" for i, comment in enumerate(batch_comments)])
@@ -453,12 +489,32 @@ def classify_with_keywords(comments, categories, session_id):
     
     # Classify each comment with progress tracking
     total_comments = len(comments)
+    start_time = classification_progress[session_id].get('start_time', time.time())
+    
     for i, (idx, comment) in enumerate(comments.items()):
         # Update progress every 50 comments
         if i % 50 == 0:
             progress = 20 + int((i / total_comments) * 60)  # Progress from 20% to 80%
-            classification_progress[session_id]['progress'] = progress
-            classification_progress[session_id]['current_step'] = f'Classifying comment {i + 1} of {total_comments}...'
+            processed = i
+            remaining = total_comments - processed
+            
+            # Calculate processing rate and time estimation
+            elapsed_time = time.time() - start_time
+            if elapsed_time > 0 and processed > 0:
+                processing_rate = processed / elapsed_time  # comments per second
+                estimated_time_remaining = remaining / processing_rate if processing_rate > 0 else None
+            else:
+                processing_rate = 0
+                estimated_time_remaining = None
+            
+            classification_progress[session_id].update({
+                'progress': progress,
+                'processed': processed,
+                'remaining': remaining,
+                'current_step': f'Classifying comment {i + 1} of {total_comments} (keyword matching)',
+                'processing_rate': round(processing_rate, 2),
+                'estimated_time_remaining': round(estimated_time_remaining) if estimated_time_remaining else None
+            })
         
         comment_lower = str(comment).lower()
         best_category = categories[0]['title']  # Default

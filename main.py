@@ -23,6 +23,11 @@ logging.basicConfig(
 )
 app.logger.setLevel(logging.DEBUG)
 
+# Enable Werkzeug request logging (for HTTP request logs)
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.setLevel(logging.DEBUG)
+werkzeug_logger.addHandler(logging.StreamHandler())
+
 # Register blueprints
 app.register_blueprint(upload_bp)
 app.register_blueprint(suggest_bp)
