@@ -1,10 +1,10 @@
 from flask import Blueprint, request, jsonify, current_app, Response
-from openai import OpenAI
+from openai import AsyncOpenAI
 import pandas as pd
 import time
 import json
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
 from routes.upload import upload_sessions, classification_progress
 
 classify_bp = Blueprint('classify', __name__)
@@ -246,11 +246,126 @@ def perform_classification(df, verbatim_col, categories, session_id):
     return classified_df
 
 def classify_with_llm(comments, category_titles, session_id):
-    """Classify comments using OpenAI API with batching for efficiency"""
-    client = OpenAI(api_key=current_app.config['OPENAI_API_KEY'])
+    """Classify comments using OpenAI API with async batching for efficiency"""
+    # Run the async classification in a new event loop
+    return asyncio.run(classify_with_llm_async(comments, category_titles, session_id))
+
+async def classify_with_llm_async(comments, category_titles, session_id):
+    """Async version of classify_with_llm with improved batching"""
+    client = AsyncOpenAI(api_key=current_app.config['OPENAI_API_KEY'])
     classifications = {}
     
-    # Prepare system message
+    # Semaphore to control concurrent requests (don't exceed rate limits)
+    semaphore = asyncio.Semaphore(10)
+    
+    # Prepare system message for batch processing
+    system_message = f"""You are a comment classifier. Classify each comment in the batch.
+
+RULES:
+1. Choose ONE of the following categories for each comment: {', '.join(category_titles)}.
+2. Output ONLY a JSON array with the category for each comment in order.
+3. If a comment is blank, empty, or just whitespace, use "No Comment".
+4. If a comment is unclear or doesn't fit any category well, choose the closest match.
+
+Example format: ["Category1", "Category2", "No Comment"]"""
+    
+    # Process comments in batches - send multiple comments per API call
+    batch_size = 15  # Reduced batch size for better JSON parsing reliability
+    comment_list = comments.tolist()
+    comment_indices = comments.index.tolist()
+    total_batches = len(range(0, len(comment_list), batch_size))
+    
+    # Create tasks for all batches
+    tasks = []
+    for batch_num, i in enumerate(range(0, len(comment_list), batch_size)):
+        batch_comments = comment_list[i:i + batch_size]
+        batch_indices = comment_indices[i:i + batch_size]
+        
+        task = classify_batch_async(client, semaphore, system_message, batch_comments, batch_indices, category_titles, session_id, batch_num, total_batches)
+        tasks.append(task)
+    
+    # Execute all batches concurrently
+    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Process results
+    for result in batch_results:
+        if isinstance(result, Exception):
+            current_app.logger.error(f"Batch classification failed: {result}")
+            continue
+        if result:
+            classifications.update(result)
+    
+    return classifications
+
+async def classify_batch_async(client, semaphore, system_message, batch_comments, batch_indices, category_titles, session_id, batch_num, total_batches):
+    """Classify a batch of comments asynchronously"""
+    async with semaphore:
+        try:
+            # Update progress
+            progress = 20 + int((batch_num / total_batches) * 60)  # Progress from 20% to 80%
+            classification_progress[session_id]['progress'] = progress
+            classification_progress[session_id]['current_step'] = f'Processing batch {batch_num + 1} of {total_batches}...'
+            
+            # Create user message with numbered comments
+            user_message = "\n".join([f"{i+1}. {comment}" for i, comment in enumerate(batch_comments)])
+            
+            # Use gpt-4o-mini for speed
+            # TODO: Upgrade to gpt-4.1-nano when available for ~50% better latency
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=100,
+                temperature=0
+            )
+            
+            # Parse the JSON response
+            result_text = response.choices[0].message.content.strip()
+            
+            try:
+                # Try to parse as JSON array first
+                if result_text.startswith('['):
+                    categories_result = json.loads(result_text)
+                else:
+                    # Try to parse as JSON object with 'categories' key
+                    result_obj = json.loads(result_text)
+                    categories_result = result_obj.get('categories', result_obj.get('results', []))
+                
+                # Map results to indices
+                batch_classifications = {}
+                for i, (idx, category) in enumerate(zip(batch_indices, categories_result)):
+                    if i < len(categories_result):
+                        # Validate category
+                        if category in category_titles:
+                            batch_classifications[idx] = category
+                        else:
+                            current_app.logger.warning(f"Invalid category '{category}' returned, using default")
+                            batch_classifications[idx] = category_titles[0]
+                    else:
+                        # Fallback if not enough results
+                        batch_classifications[idx] = category_titles[0]
+                
+                return batch_classifications
+                
+            except json.JSONDecodeError as e:
+                current_app.logger.error(f"JSON parsing failed for batch {batch_num}: {e}")
+                current_app.logger.error(f"Response content: {result_text}")
+                # Fallback to individual processing
+                return await fallback_individual_classification(client, semaphore, batch_comments, batch_indices, category_titles)
+                
+        except Exception as e:
+            current_app.logger.error(f"Batch {batch_num} classification failed: {e}")
+            # Fallback to individual processing
+            return await fallback_individual_classification(client, semaphore, batch_comments, batch_indices, category_titles)
+
+async def fallback_individual_classification(client, semaphore, batch_comments, batch_indices, category_titles):
+    """Fallback to individual comment classification if batch fails"""
+    classifications = {}
+    
+    # Simple system message for individual classification
     system_message = f"""You label comments. 
 RULES:
 1. Choose ONE of the following categories exactly: {', '.join(category_titles)}.
@@ -258,66 +373,53 @@ RULES:
 3. If the comment is blank, empty, or just whitespace, respond with "No Comment".
 4. If the comment is unclear or doesn't fit any category well, choose the closest match from the list."""
     
-    # Process comments in batches to respect rate limits
-    batch_size = 20
-    comment_list = comments.tolist()
-    comment_indices = comments.index.tolist()
-    total_batches = len(range(0, len(comment_list), batch_size))
+    # Process individual comments
+    tasks = []
+    for comment, idx in zip(batch_comments, batch_indices):
+        task = classify_single_comment_async(client, semaphore, system_message, comment, idx, category_titles)
+        tasks.append(task)
     
-    for batch_num, i in enumerate(range(0, len(comment_list), batch_size)):
-        batch_comments = comment_list[i:i + batch_size]
-        batch_indices = comment_indices[i:i + batch_size]
-        
-        # Update progress
-        progress = 20 + int((batch_num / total_batches) * 60)  # Progress from 20% to 80%
-        classification_progress[session_id]['progress'] = progress
-        classification_progress[session_id]['current_step'] = f'Processing batch {batch_num + 1} of {total_batches}...'
-        
-        # Use ThreadPoolExecutor for parallel API calls within the batch
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_index = {
-                executor.submit(classify_single_comment, client, system_message, comment): idx
-                for comment, idx in zip(batch_comments, batch_indices)
-            }
-            
-            for future in as_completed(future_to_index):
-                idx = future_to_index[future]
-                try:
-                    classification = future.result()
-                    # Validate classification is in our expected categories
-                    if classification not in category_titles:
-                        current_app.logger.warning(f"LLM returned invalid category '{classification}', using default '{category_titles[0]}'")
-                        classification = category_titles[0]
-                    classifications[idx] = classification
-                except Exception as e:
-                    current_app.logger.error(f"Failed to classify comment {idx}: {e}")
-                    classifications[idx] = category_titles[0]  # Default to first category
-        
-        # Small delay between batches to respect rate limits
-        if i + batch_size < len(comment_list):
-            time.sleep(0.5)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for result in results:
+        if isinstance(result, Exception):
+            current_app.logger.error(f"Individual classification failed: {result}")
+            continue
+        if result:
+            idx, category = result
+            classifications[idx] = category
     
     return classifications
 
-def classify_single_comment(client, system_message, comment):
-    """Classify a single comment using OpenAI API"""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": str(comment)}
-            ],
-            max_tokens=20,
-            temperature=0
-        )
-        
-        result = response.choices[0].message.content.strip()
-        return result
-        
-    except Exception as e:
-        current_app.logger.error(f"Single comment classification failed: {e}")
-        raise e
+async def classify_single_comment_async(client, semaphore, system_message, comment, idx, category_titles):
+    """Classify a single comment asynchronously"""
+    async with semaphore:
+        try:
+            # Use gpt-4o-mini for speed
+            # TODO: Upgrade to gpt-4.1-nano when available for ~50% better latency
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": str(comment)}
+                ],
+                max_tokens=20,
+                temperature=0
+            )
+            
+            result = response.choices[0].message.content.strip()
+            
+            # Validate result
+            if result in category_titles:
+                return (idx, result)
+            else:
+                current_app.logger.warning(f"Invalid category '{result}' for comment {idx}, using default")
+                return (idx, category_titles[0])
+                
+        except Exception as e:
+            current_app.logger.error(f"Single comment classification failed for {idx}: {e}")
+            return (idx, category_titles[0])
+
 
 def classify_with_keywords(comments, categories, session_id):
     """Fallback classification using keyword matching"""
