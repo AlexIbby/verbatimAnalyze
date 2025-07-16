@@ -94,7 +94,7 @@ def update_categories(session_id):
         current_app.logger.info(f"Session ID: {session_id}")
         current_app.logger.info(f"Categories being stored: {categories}")
         
-        # Get session data, modify it, and store it back to Redis
+        # Get session data, modify it, and store it back
         session_data = upload_sessions[session_id]
         if session_data is None:
             current_app.logger.error(f"Session data is None for session {session_id}")
