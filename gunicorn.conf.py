@@ -23,4 +23,5 @@ errorlog = "-"   # Log to stderr
 preload_app = True
 
 # Bind to Railway's expected interface
-bind = "0.0.0.0:$PORT" if "$PORT" in str(__import__('os').environ) else "0.0.0.0:5000"
+import os
+bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
