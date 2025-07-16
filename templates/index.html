@@ -391,6 +391,65 @@
         .status-indicator.completed {
             background: #28a745;
         }
+        .info-icon {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            background: #17a2b8;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 16px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: help;
+            margin-left: 8px;
+            position: relative;
+        }
+        .info-icon:hover {
+            background: #138496;
+        }
+        .info-tooltip {
+            visibility: hidden;
+            width: 300px;
+            background-color: #333;
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: 10px;
+            position: absolute;
+            z-index: 1000;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -150px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .info-tooltip::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+        .info-icon:hover .info-tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        .step-explanation {
+            background: #f8f9fa;
+            border-left: 4px solid #17a2b8;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 5px 5px 0;
+            font-size: 14px;
+            color: #495057;
+        }
     </style>
 </head>
 <body>
@@ -438,7 +497,16 @@
 
         <!-- Step 3: Category Generation -->
         <div class="step" id="step-categories">
-            <h3><span class="status-indicator pending" id="categories-status"></span>Step 3: Generate Categories</h3>
+            <h3><span class="status-indicator pending" id="categories-status"></span>Step 3: Generate Categories
+                <span class="info-icon">i
+                    <div class="info-tooltip">
+                        Our AI analyzes a sample of your comments to identify common themes and automatically creates relevant categories. This intelligent pre-analysis ensures accurate classification in the next step.
+                    </div>
+                </span>
+            </h3>
+            <div class="step-explanation">
+                <strong>What happens here:</strong> The system will analyze your verbatim comments using AI to automatically detect the main themes and topics. This creates a set of categories that will be used to classify all your survey responses. <strong>You can edit these categories</strong> to better match what you need to understand from your analysis.
+            </div>
             <button class="btn" id="generate-categories-btn" onclick="generateCategories()" disabled>Generate Categories</button>
             <div class="loading" id="categories-loading">
                 <div class="spinner"></div>
@@ -451,7 +519,16 @@
 
         <!-- Step 4: Classification -->
         <div class="step" id="step-classify">
-            <h3><span class="status-indicator pending" id="classify-status"></span>Step 4: Classify Comments</h3>
+            <h3><span class="status-indicator pending" id="classify-status"></span>Step 4: Classify Comments
+                <span class="info-icon">i
+                    <div class="info-tooltip">
+                        Each comment is sent to OpenAI's API to be automatically classified into the categories from Step 3. The AI reads each comment and determines which category it best fits into.
+                    </div>
+                </span>
+            </h3>
+            <div class="step-explanation">
+                <strong>What happens here:</strong> Every comment in your dataset will be processed by AI and automatically assigned to the most appropriate category. This process runs in batches for efficiency and may take several minutes depending on the number of comments.
+            </div>
             <button class="btn" id="classify-btn" onclick="classifyComments()" disabled>Start Classification</button>
             <div class="loading" id="classify-loading">
                 <div class="spinner"></div>
@@ -466,7 +543,16 @@
 
         <!-- Step 5: Results and Download -->
         <div class="step" id="step-results">
-            <h3><span class="status-indicator pending" id="results-status"></span>Step 5: Download Results</h3>
+            <h3><span class="status-indicator pending" id="results-status"></span>Step 5: Download Results
+                <span class="info-icon">i
+                    <div class="info-tooltip">
+                        View analytics and download your results in multiple formats. The CSV contains your original data plus AI-generated categories, while the PDF provides a comprehensive analytical report.
+                    </div>
+                </span>
+            </h3>
+            <div class="step-explanation">
+                <strong>What you'll get:</strong> A detailed analysis of your survey responses with visual charts, statistics, and downloadable files. The CSV file includes all original comments with their assigned categories, perfect for further analysis in Excel or other tools.
+            </div>
             <div class="results-summary" id="results-summary" style="display: none;"></div>
             <div class="results-container" id="results-container" style="display: none;">
                 <div class="chart-container">
