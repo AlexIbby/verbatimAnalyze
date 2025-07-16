@@ -93,7 +93,7 @@ Which column most likely contains free-text survey comments or feedback?
 Return only the exact column name, nothing else."""
 
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=50,
             temperature=0
