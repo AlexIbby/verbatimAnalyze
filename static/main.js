@@ -635,12 +635,44 @@ function displayResults(data) {
 // Download CSV
 function downloadCSV() {
     if (!currentSessionId) return;
-    window.open(`/sessions/${currentSessionId}/download/csv`, '_blank');
+    
+    const btn = document.getElementById('download-csv-btn');
+    const btnText = btn.querySelector('.btn-text');
+    const btnLoading = btn.querySelector('.btn-loading');
+    
+    // Show loading state
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+    btn.disabled = true;
+    
+    // Create a temporary link for download
+    const link = document.createElement('a');
+    link.href = `/sessions/${currentSessionId}/download/csv`;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Reset button after short delay
+    setTimeout(() => {
+        btnText.style.display = 'inline';
+        btnLoading.style.display = 'none';
+        btn.disabled = false;
+    }, 1000);
 }
 
 // Download PDF with chart image
 function downloadPDF() {
     if (!currentSessionId) return;
+    
+    const btn = document.getElementById('download-pdf-btn');
+    const btnText = btn.querySelector('.btn-text');
+    const btnLoading = btn.querySelector('.btn-loading');
+    
+    // Show loading state
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+    btn.disabled = true;
     
     // Capture chart as image if it exists
     if (categoryChart) {
@@ -670,11 +702,34 @@ function downloadPDF() {
         .catch(error => {
             console.error('Error downloading PDF:', error);
             // Fallback to regular PDF download
-            window.open(`/sessions/${currentSessionId}/download/pdf`, '_blank');
+            const link = document.createElement('a');
+            link.href = `/sessions/${currentSessionId}/download/pdf`;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        })
+        .finally(() => {
+            // Reset button state
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
+            btn.disabled = false;
         });
     } else {
         // No chart available, use regular download
-        window.open(`/sessions/${currentSessionId}/download/pdf`, '_blank');
+        const link = document.createElement('a');
+        link.href = `/sessions/${currentSessionId}/download/pdf`;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Reset button state
+        setTimeout(() => {
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
+            btn.disabled = false;
+        }, 1000);
     }
 }
 

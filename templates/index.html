@@ -94,21 +94,39 @@
             cursor: pointer;
             font-size: 14px;
             margin: 5px;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
         }
         .btn:hover {
             background: #0056b3;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
         }
         .btn:disabled {
             background: #6c757d;
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
         .btn.success {
             background: #28a745;
             color: white;
         }
+        .btn.success:hover {
+            background: #218838;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
         .btn.warning {
             background: #ffc107;
             color: #333;
+        }
+        .btn.warning:hover {
+            background: #e0a800;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
         .error {
             color: #dc3545;
@@ -567,8 +585,14 @@
                 </div>
             </div>
             <div class="download-buttons" id="download-buttons" style="display: none;">
-                <button class="btn success" onclick="downloadCSV()">📊 Download CSV</button>
-                <button class="btn warning" onclick="downloadPDF()">Download PDF Report</button>
+                <button class="btn success" onclick="downloadCSV()" id="download-csv-btn">
+                    <span class="btn-text">📊 Download CSV</span>
+                    <span class="btn-loading" style="display: none;">⏳ Preparing...</span>
+                </button>
+                <button class="btn warning" onclick="downloadPDF()" id="download-pdf-btn">
+                    <span class="btn-text">📄 Download PDF Report</span>
+                    <span class="btn-loading" style="display: none;">⏳ Generating...</span>
+                </button>
             </div>
         </div>
     </div>
