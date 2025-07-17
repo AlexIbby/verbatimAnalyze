@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comments Analysis Report</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #2c3e50;
+            line-height: 1.6;
+            background-color: #f8f9fa;
+        }
+        
+        .report-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 0 30px rgba(0,0,0,0.08);
+        }
+        
+        .report-header {
+            background: linear-gradient(135deg, #16a085 0%, #27ae60 100%);
+            color: white;
+            padding: 60px 50px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .report-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 300px;
+            height: 300px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+        }
+        
+        .report-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 42px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .report-metadata {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .metadata-item {
+            font-size: 14px;
+            margin-bottom: 8px;
+            opacity: 0.95;
+        }
+        
+        .metadata-label {
+            font-weight: 600;
+            display: inline-block;
+            min-width: 140px;
+        }
+        
+        .content-section {
+            padding: 50px;
+        }
+        
+        .section-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            position: relative;
+            padding-bottom: 15px;
+            page-break-before: auto;
+        }
+        
+        .section-title::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60px;
+            height: 3px;
+            background: #27ae60;
+        }
+        
+        .category-summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 40px;
+            background: #ffffff;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.05);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .category-summary-table thead {
+            background: #f8f9fa;
+        }
+        
+        .category-summary-table th {
+            padding: 18px 24px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #5a6c7d;
+            border-bottom: 2px solid #e9ecef;
+        }
+        
+        .category-summary-table td {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 15px;
+        }
+        
+        .category-summary-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .category-summary-table tr:hover {
+            background-color: #f8f9fa;
+            transition: background-color 0.2s ease;
+        }
+        
+        .percentage-cell {
+            font-weight: 500;
+            color: #27ae60;
+        }
+        
+        .chart-container {
+            margin: 40px 0;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            text-align: center;
+            page-break-inside: avoid;
+        }
+        
+        .chart-placeholder {
+            padding: 80px 20px;
+            background: white;
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            color: #6c757d;
+            font-style: italic;
+        }
+        
+        .chart-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .quotes-section {
+            margin-top: 50px;
+        }
+        
+        .category-quotes {
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+        }
+        
+        .category-name {
+            font-size: 20px;
+            font-weight: 600;
+            color: #16a085;
+            margin-bottom: 15px;
+        }
+        
+        .category-description {
+            font-size: 14px;
+            color: #6c757d;
+            margin-bottom: 20px;
+            font-style: italic;
+        }
+        
+        .quote-list {
+            list-style: none;
+        }
+        
+        .quote-item {
+            position: relative;
+            padding-left: 30px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            line-height: 1.8;
+            color: #495057;
+        }
+        
+        .quote-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 8px;
+            width: 6px;
+            height: 6px;
+            background: #27ae60;
+            border-radius: 50%;
+        }
+        
+        .quote-text {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            border-radius: 6px;
+            display: inline-block;
+            font-style: italic;
+            border-left: 3px solid #27ae60;
+        }
+        
+        .executive-summary {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+        }
+        
+        .summary-section {
+            margin-bottom: 25px;
+        }
+        
+        .summary-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .summary-subtitle {
+            font-size: 16px;
+            font-weight: 600;
+            color: #16a085;
+            margin-bottom: 12px;
+        }
+        
+        .summary-text {
+            font-size: 15px;
+            line-height: 1.8;
+            color: #495057;
+        }
+        
+        .insight-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .insight-list li {
+            position: relative;
+            padding-left: 25px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: #495057;
+        }
+        
+        .insight-list li::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: #27ae60;
+            font-weight: 600;
+            font-size: 18px;
+            line-height: 1;
+        }
+        
+        /* WeasyPrint specific styles */
+        @media print {
+            .report-container {
+                box-shadow: none;
+                max-width: none;
+            }
+            
+            .content-section {
+                padding: 30px;
+            }
+            
+            .section-title {
+                page-break-after: avoid;
+            }
+            
+            .category-quotes {
+                page-break-inside: avoid;
+            }
+            
+            .executive-summary {
+                page-break-inside: avoid;
+            }
+            
+            .chart-container {
+                page-break-inside: avoid;
+            }
+        }
+        
+        /* Page break utilities */
+        .page-break {
+            page-break-before: always;
+        }
+        
+        .no-page-break {
+            page-break-inside: avoid;
+        }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        <header class="report-header">
+            <h1 class="report-title">Comments Analysis Report</h1>
+            <div class="report-metadata">
+                <div class="metadata-item">
+                    <span class="metadata-label">File:</span>
+                    <span>{{ filename }}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Total Responses:</span>
+                    <span>{{ total_responses }}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Verbatim Column:</span>
+                    <span>{{ verbatim_column }}</span>
+                </div>
+            </div>
+        </header>
+        
+        <section class="content-section">
+            {% if insights %}
+            <h2 class="section-title">Executive Summary</h2>
+            
+            <div class="executive-summary">
+                {% if insights.sentiment_summary %}
+                <div class="summary-section">
+                    <h3 class="summary-subtitle">Overall Sentiment:</h3>
+                    <p class="summary-text">{{ insights.sentiment_summary }}</p>
+                </div>
+                {% endif %}
+                
+                {% if insights.key_insights %}
+                <div class="summary-section">
+                    <h3 class="summary-subtitle">Key Insights:</h3>
+                    <ul class="insight-list">
+                        {% for insight in insights.key_insights %}
+                        <li>{{ insight }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                
+                {% if insights.priority_opportunities %}
+                <div class="summary-section">
+                    <h3 class="summary-subtitle">Priority Opportunities:</h3>
+                    <ul class="insight-list">
+                        {% for opportunity in insights.priority_opportunities %}
+                        <li>{{ opportunity }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                
+                {% if insights.risk_areas %}
+                <div class="summary-section">
+                    <h3 class="summary-subtitle">Areas Requiring Attention:</h3>
+                    <ul class="insight-list">
+                        {% for risk in insights.risk_areas %}
+                        <li>{{ risk }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <h2 class="section-title">Category Summary</h2>
+            
+            <table class="category-summary-table">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Count</th>
+                        <th>Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for category in category_data %}
+                    <tr>
+                        <td>{{ category.title }}</td>
+                        <td>{{ category.count }}</td>
+                        <td class="percentage-cell">{{ "%.1f"|format(category.percentage) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            {% if chart_data %}
+            <h2 class="section-title">Category Distribution Chart</h2>
+            
+            <div class="chart-container">
+                <img src="data:image/png;base64,{{ chart_data }}" alt="Category Distribution Chart" class="chart-image">
+            </div>
+            {% endif %}
+            
+            <div class="quotes-section">
+                <h2 class="section-title">Sample Quotes by Category</h2>
+                
+                {% for category in category_data %}
+                <div class="category-quotes">
+                    <h3 class="category-name">{{ category.title }}</h3>
+                    <p class="category-description">{{ category.description }}</p>
+                    {% if category.sample_quotes %}
+                    <ol class="quote-list">
+                        {% for quote in category.sample_quotes %}
+                        <li class="quote-item">
+                            <span class="quote-text">"{{ quote }}"</span>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                    {% else %}
+                    <p class="quote-item">No sample quotes available for this category.</p>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+</body>
+</html>

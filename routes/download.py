@@ -1,16 +1,19 @@
-from flask import Blueprint, send_file, jsonify, current_app, request
+from flask import Blueprint, send_file, jsonify, current_app, request, render_template
 import os
 import io
 import base64
 import json
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from PIL import Image as PILImage
 from routes.upload import upload_sessions
 from openai import OpenAI
+
+# Note: WeasyPrint support can be added when dependencies are properly installed
+WEASYPRINT_AVAILABLE = False
 
 download_bp = Blueprint('download', __name__)
 
@@ -90,6 +93,84 @@ def download_pdf_report(session_id):
         
     except Exception as e:
         current_app.logger.error(f"PDF download error: {e}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+@download_bp.route('/sessions/<session_id>/report/preview', methods=['GET'])
+def preview_report(session_id):
+    """Preview the HTML report before downloading as PDF"""
+    try:
+        if session_id not in upload_sessions:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        session = upload_sessions[session_id]
+        
+        if session.get('classified_data') is None:
+            return jsonify({'error': 'No classification data available'}), 400
+        
+        # Get data
+        df = session['classified_data']
+        categories = session['categories']
+        verbatim_col = session['verbatim_column']
+        filename = session['filename']
+        
+        # Generate insights
+        insights = generate_insights_with_gpt4o(session)
+        
+        # Prepare category data for template
+        category_counts = df['Comment Category'].value_counts()
+        category_data = []
+        
+        for cat in categories:
+            title = cat['title']
+            description = cat['description']
+            count = category_counts.get(title, 0)
+            percentage = (count / len(df)) * 100 if len(df) > 0 else 0
+            
+            # Get sample quotes
+            category_df = df[df['Comment Category'] == title]
+            sample_quotes = []
+            if len(category_df) > 0:
+                sample_comments = category_df[verbatim_col].dropna().astype(str)
+                sample_comments = sample_comments[sample_comments.str.len() > 0]
+                samples = sample_comments.head(3).tolist()
+                
+                for quote in samples:
+                    # Truncate very long quotes
+                    if len(quote) > 200:
+                        quote = quote[:200] + "..."
+                    sample_quotes.append(quote)
+            
+            category_data.append({
+                'title': title,
+                'description': description,
+                'count': count,
+                'percentage': percentage,
+                'sample_quotes': sample_quotes
+            })
+        
+        # Add "No Comment" if present
+        if 'No Comment' in category_counts:
+            count = category_counts['No Comment']
+            percentage = (count / len(df)) * 100
+            category_data.append({
+                'title': 'No Comment',
+                'description': 'Empty, blank, or missing comments',
+                'count': count,
+                'percentage': percentage,
+                'sample_quotes': []
+            })
+        
+        # Render HTML template
+        return render_template('report.html',
+                             filename=filename,
+                             total_responses=len(df),
+                             verbatim_column=verbatim_col,
+                             insights=insights,
+                             category_data=category_data,
+                             chart_data=None)  # No chart data for preview
+        
+    except Exception as e:
+        current_app.logger.error(f"Report preview error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 def generate_insights_with_gpt4o(session):
@@ -249,6 +330,142 @@ Pay close attention to recurring themes, specific service failures, and actionab
 
 def generate_pdf_report(session, chart_image_data=None):
     """Generate a PDF report of the classification results"""
+    
+    # Get data
+    df = session['classified_data']
+    categories = session['categories']
+    verbatim_col = session['verbatim_column']
+    filename = session['filename']
+    
+    if WEASYPRINT_AVAILABLE:
+        return generate_pdf_with_weasyprint(session, chart_image_data)
+    else:
+        return generate_pdf_with_reportlab(session, chart_image_data)
+
+def generate_pdf_with_weasyprint(session, chart_image_data=None):
+    """Generate a PDF report using WeasyPrint"""
+    
+    # Get data
+    df = session['classified_data']
+    categories = session['categories']
+    verbatim_col = session['verbatim_column']
+    filename = session['filename']
+    
+    # Generate insights
+    insights = generate_insights_with_gpt4o(session)
+    
+    # Prepare category data for template
+    category_counts = df['Comment Category'].value_counts()
+    category_data = []
+    
+    for cat in categories:
+        title = cat['title']
+        description = cat['description']
+        count = category_counts.get(title, 0)
+        percentage = (count / len(df)) * 100 if len(df) > 0 else 0
+        
+        # Get sample quotes
+        category_df = df[df['Comment Category'] == title]
+        sample_quotes = []
+        if len(category_df) > 0:
+            sample_comments = category_df[verbatim_col].dropna().astype(str)
+            sample_comments = sample_comments[sample_comments.str.len() > 0]
+            samples = sample_comments.head(3).tolist()
+            
+            for quote in samples:
+                # Truncate very long quotes
+                if len(quote) > 200:
+                    quote = quote[:200] + "..."
+                sample_quotes.append(quote)
+        
+        category_data.append({
+            'title': title,
+            'description': description,
+            'count': count,
+            'percentage': percentage,
+            'sample_quotes': sample_quotes
+        })
+    
+    # Add "No Comment" if present
+    if 'No Comment' in category_counts:
+        count = category_counts['No Comment']
+        percentage = (count / len(df)) * 100
+        category_data.append({
+            'title': 'No Comment',
+            'description': 'Empty, blank, or missing comments',
+            'count': count,
+            'percentage': percentage,
+            'sample_quotes': []
+        })
+    
+    # Prepare chart data
+    chart_data = None
+    if chart_image_data:
+        try:
+            # Extract base64 data (remove data:image/png;base64, prefix)
+            chart_data = chart_image_data.split(',')[1]
+        except Exception as e:
+            current_app.logger.error(f"Error processing chart image: {e}")
+    
+    # Render HTML template
+    html_content = render_template('report.html',
+                                 filename=filename,
+                                 total_responses=len(df),
+                                 verbatim_column=verbatim_col,
+                                 insights=insights,
+                                 category_data=category_data,
+                                 chart_data=chart_data)
+    
+    # Generate PDF using WeasyPrint
+    buffer = io.BytesIO()
+    
+    # Create WeasyPrint CSS for better page handling
+    css_content = """
+    @page {
+        size: A4;
+        margin: 20mm;
+    }
+    
+    @media print {
+        .page-break {
+            page-break-before: always;
+        }
+        
+        .no-page-break {
+            page-break-inside: avoid;
+        }
+        
+        .executive-summary {
+            page-break-inside: avoid;
+        }
+        
+        .category-quotes {
+            page-break-inside: avoid;
+        }
+        
+        .chart-container {
+            page-break-inside: avoid;
+        }
+    }
+    """
+    
+    try:
+        # Generate PDF
+        html = HTML(string=html_content, base_url=current_app.root_path)
+        css = CSS(string=css_content)
+        pdf = html.write_pdf(stylesheets=[css])
+        
+        buffer.write(pdf)
+        buffer.seek(0)
+        
+        return buffer
+        
+    except Exception as e:
+        current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}")
+        raise e
+
+def generate_pdf_with_reportlab(session, chart_image_data=None):
+    """Generate a PDF report using ReportLab with improved styling"""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*inch)
     
@@ -262,14 +479,38 @@ def generate_pdf_report(session, chart_image_data=None):
     story = []
     styles = getSampleStyleSheet()
     
-    # Title
+    # Create custom styles that match the HTML design
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=18,
+        fontSize=24,
         spaceAfter=30,
-        alignment=1  # Center alignment
+        alignment=1,  # Center alignment
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#2c3e50')
     )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#2c3e50')
+    )
+    
+    subheading_style = ParagraphStyle(
+        'CustomSubheading',
+        parent=styles['Heading3'],
+        fontSize=14,
+        spaceAfter=10,
+        spaceBefore=15,
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#16a085')
+    )
+    
+    # Title
     story.append(Paragraph("Comments Analysis Report", title_style))
     story.append(Spacer(1, 20))
     
@@ -282,31 +523,32 @@ def generate_pdf_report(session, chart_image_data=None):
     # Generate and add insights if OpenAI is available
     insights = generate_insights_with_gpt4o(session)
     if insights:
-        story.append(Paragraph("Executive Summary", styles['Heading2']))
+        story.append(Paragraph("Executive Summary", heading_style))
         story.append(Spacer(1, 10))
         
         # Sentiment Summary
         if insights.get('sentiment_summary'):
-            story.append(Paragraph(f"<b>Overall Sentiment:</b> {insights['sentiment_summary']}", styles['Normal']))
+            story.append(Paragraph("<b>Overall Sentiment:</b>", subheading_style))
+            story.append(Paragraph(insights['sentiment_summary'], styles['Normal']))
             story.append(Spacer(1, 10))
         
         # Key Insights
         if insights.get('key_insights'):
-            story.append(Paragraph("<b>Key Insights:</b>", styles['Normal']))
+            story.append(Paragraph("<b>Key Insights:</b>", subheading_style))
             for insight in insights['key_insights']:
                 story.append(Paragraph(f"• {insight}", styles['Normal']))
             story.append(Spacer(1, 10))
         
         # Priority Opportunities
         if insights.get('priority_opportunities'):
-            story.append(Paragraph("<b>Priority Opportunities:</b>", styles['Normal']))
+            story.append(Paragraph("<b>Priority Opportunities:</b>", subheading_style))
             for opportunity in insights['priority_opportunities']:
                 story.append(Paragraph(f"• {opportunity}", styles['Normal']))
             story.append(Spacer(1, 10))
         
         # Risk Areas
         if insights.get('risk_areas'):
-            story.append(Paragraph("<b>Areas Requiring Attention:</b>", styles['Normal']))
+            story.append(Paragraph("<b>Areas Requiring Attention:</b>", subheading_style))
             for risk in insights['risk_areas']:
                 story.append(Paragraph(f"• {risk}", styles['Normal']))
             story.append(Spacer(1, 15))
@@ -315,12 +557,12 @@ def generate_pdf_report(session, chart_image_data=None):
     else:
         # Show a note if insights are not available
         if not current_app.config.get('OPENAI_API_KEY'):
-            story.append(Paragraph("Enhanced Analysis", styles['Heading2']))
+            story.append(Paragraph("Enhanced Analysis", heading_style))
             story.append(Paragraph("<i>Note: Enhanced insights and recommendations are available when OpenAI API key is configured.</i>", styles['Normal']))
             story.append(Spacer(1, 20))
     
     # Category summary table
-    story.append(Paragraph("Category Summary", styles['Heading2']))
+    story.append(Paragraph("Category Summary", heading_style))
     story.append(Spacer(1, 10))
     
     # Prepare table data
@@ -339,17 +581,20 @@ def generate_pdf_report(session, chart_image_data=None):
         percentage = (count / len(df)) * 100
         table_data.append(['No Comment', str(count), f"{percentage:.1f}%"])
     
-    # Create and style table
-    table = Table(table_data)
+    # Create and style table with improved styling
+    table = Table(table_data, colWidths=[4*inch, 1*inch, 1*inch])
     table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#16a085')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 14),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ('TOPPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8f9fa')),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e9ecef')),
+        ('FONTSIZE', (0, 1), (-1, -1), 10),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
     
     story.append(table)
@@ -374,7 +619,7 @@ def generate_pdf_report(session, chart_image_data=None):
             # Create ReportLab Image
             chart_image = Image(io.BytesIO(image_bytes), width=img_width, height=img_height)
             
-            story.append(Paragraph("Category Distribution Chart", styles['Heading2']))
+            story.append(Paragraph("Category Distribution Chart", heading_style))
             story.append(Spacer(1, 10))
             story.append(chart_image)
             story.append(Spacer(1, 20))
@@ -384,10 +629,8 @@ def generate_pdf_report(session, chart_image_data=None):
             # Continue without chart if there's an error
             pass
     
-    story.append(Spacer(1, 10))
-    
     # Sample quotes for each category
-    story.append(Paragraph("Sample Quotes by Category", styles['Heading2']))
+    story.append(Paragraph("Sample Quotes by Category", heading_style))
     story.append(Spacer(1, 10))
     
     for cat in categories:
@@ -395,7 +638,7 @@ def generate_pdf_report(session, chart_image_data=None):
         description = cat['description']
         
         # Category header
-        story.append(Paragraph(f"<b>{title}</b>", styles['Heading3']))
+        story.append(Paragraph(f"<b>{title}</b>", subheading_style))
         story.append(Paragraph(f"<i>{description}</i>", styles['Normal']))
         story.append(Spacer(1, 5))
         
@@ -411,8 +654,21 @@ def generate_pdf_report(session, chart_image_data=None):
                     # Truncate very long quotes
                     if len(quote) > 200:
                         quote = quote[:200] + "..."
-                    story.append(Paragraph(f"{i}. \"{quote}\"", styles['Normal']))
-                    story.append(Spacer(1, 3))
+                    # Create a styled quote
+                    quote_style = ParagraphStyle(
+                        'Quote',
+                        parent=styles['Normal'],
+                        leftIndent=20,
+                        fontSize=10,
+                        fontName='Helvetica',
+                        textColor=colors.HexColor('#495057'),
+                        backColor=colors.HexColor('#f8f9fa'),
+                        borderColor=colors.HexColor('#27ae60'),
+                        borderWidth=1,
+                        borderPadding=8,
+                        spaceAfter=8
+                    )
+                    story.append(Paragraph(f"{i}. \"{quote}\"", quote_style))
             else:
                 story.append(Paragraph("No sample quotes available.", styles['Normal']))
         else:
