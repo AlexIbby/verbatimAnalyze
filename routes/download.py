@@ -11,9 +11,20 @@ from reportlab.lib.units import inch
 from PIL import Image as PILImage
 from routes.upload import upload_sessions
 from openai import OpenAI
+from chart_generator import generate_chart_image
 
-# Note: WeasyPrint support can be added when dependencies are properly installed
-WEASYPRINT_AVAILABLE = False
+# WeasyPrint support for HTML to PDF conversion
+import platform
+try:
+    import weasyprint
+    WEASYPRINT_AVAILABLE = True
+except (ImportError, OSError) as e:
+    # WeasyPrint has complex dependencies on Windows
+    # Fall back to ReportLab which works reliably across platforms
+    WEASYPRINT_AVAILABLE = False
+    if platform.system() == "Windows":
+        import logging
+        logging.getLogger(__name__).info("WeasyPrint not available on Windows, using ReportLab for PDF generation")
 
 download_bp = Blueprint('download', __name__)
 
@@ -398,14 +409,19 @@ def generate_pdf_with_weasyprint(session, chart_image_data=None):
             'sample_quotes': []
         })
     
-    # Prepare chart data
+    # Generate chart data automatically
     chart_data = None
-    if chart_image_data:
-        try:
-            # Extract base64 data (remove data:image/png;base64, prefix)
-            chart_data = chart_image_data.split(',')[1]
-        except Exception as e:
-            current_app.logger.error(f"Error processing chart image: {e}")
+    try:
+        # Generate chart image using matplotlib
+        chart_data = generate_chart_image(category_data, chart_type='horizontal_bar')
+    except Exception as e:
+        current_app.logger.error(f"Error generating chart image: {e}")
+        # If provided chart data exists, use it as fallback
+        if chart_image_data:
+            try:
+                chart_data = chart_image_data.split(',')[1]
+            except Exception as e2:
+                current_app.logger.error(f"Error processing fallback chart image: {e2}")
     
     # Render HTML template
     html_content = render_template('report.html',
@@ -426,43 +442,72 @@ def generate_pdf_with_weasyprint(session, chart_image_data=None):
         margin: 20mm;
     }
     
-    @media print {
-        .page-break {
-            page-break-before: always;
-        }
-        
-        .no-page-break {
-            page-break-inside: avoid;
-        }
-        
-        .executive-summary {
-            page-break-inside: avoid;
-        }
-        
-        .category-quotes {
-            page-break-inside: avoid;
-        }
-        
-        .chart-container {
-            page-break-inside: avoid;
-        }
+    body {
+        font-family: 'Inter', 'Helvetica', 'Arial', sans-serif;
+        color: #2c3e50;
+        line-height: 1.6;
+        background-color: white;
+    }
+    
+    .report-container {
+        max-width: none;
+        margin: 0;
+        background-color: white;
+        box-shadow: none;
+    }
+    
+    .page-break {
+        page-break-before: always;
+    }
+    
+    .no-page-break {
+        page-break-inside: avoid;
+    }
+    
+    .executive-summary {
+        page-break-inside: avoid;
+    }
+    
+    .category-quotes {
+        page-break-inside: avoid;
+    }
+    
+    .chart-container {
+        page-break-inside: avoid;
+    }
+    
+    .chart-image {
+        max-width: 100%;
+        height: auto;
+    }
+    
+    .category-summary-table {
+        page-break-inside: avoid;
+    }
+    
+    .section-title {
+        page-break-after: avoid;
     }
     """
     
     try:
-        # Generate PDF
-        html = HTML(string=html_content, base_url=current_app.root_path)
-        css = CSS(string=css_content)
-        pdf = html.write_pdf(stylesheets=[css])
+        # Generate PDF using WeasyPrint
+        from weasyprint import HTML as WeasyHTML, CSS as WeasyCSS
         
-        buffer.write(pdf)
+        html_doc = WeasyHTML(string=html_content)
+        css_doc = WeasyCSS(string=css_content)
+        pdf_bytes = html_doc.write_pdf(stylesheets=[css_doc])
+        
+        buffer.write(pdf_bytes)
         buffer.seek(0)
         
         return buffer
         
     except Exception as e:
         current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}")
-        raise e
+        # Fall back to ReportLab if WeasyPrint fails
+        current_app.logger.info("Falling back to ReportLab for PDF generation")
+        return generate_pdf_with_reportlab(session, chart_image_data)
 
 def generate_pdf_with_reportlab(session, chart_image_data=None):
     """Generate a PDF report using ReportLab with improved styling"""
@@ -600,34 +645,82 @@ def generate_pdf_with_reportlab(session, chart_image_data=None):
     story.append(table)
     story.append(Spacer(1, 20))
     
-    # Add chart image if provided
-    if chart_image_data:
-        try:
-            # Decode base64 image data
-            image_data = chart_image_data.split(',')[1]  # Remove data:image/png;base64, prefix
-            image_bytes = base64.b64decode(image_data)
-            
-            # Create PIL Image to get dimensions
-            pil_image = PILImage.open(io.BytesIO(image_bytes))
-            
-            # Calculate appropriate size for PDF (max 6 inches wide)
-            max_width = 6 * inch
-            aspect_ratio = pil_image.height / pil_image.width
-            img_width = min(max_width, pil_image.width * 0.75)  # 0.75 points per pixel
-            img_height = img_width * aspect_ratio
-            
-            # Create ReportLab Image
-            chart_image = Image(io.BytesIO(image_bytes), width=img_width, height=img_height)
-            
-            story.append(Paragraph("Category Distribution Chart", heading_style))
-            story.append(Spacer(1, 10))
-            story.append(chart_image)
-            story.append(Spacer(1, 20))
-            
-        except Exception as e:
-            current_app.logger.error(f"Error adding chart to PDF: {e}")
-            # Continue without chart if there's an error
-            pass
+    # Add chart image
+    try:
+        # Prepare category data for chart generation
+        category_data_for_chart = []
+        for cat in categories:
+            title = cat['title']
+            count = category_counts.get(title, 0)
+            percentage = (count / len(df)) * 100 if len(df) > 0 else 0
+            category_data_for_chart.append({
+                'title': title,
+                'count': count,
+                'percentage': percentage
+            })
+        
+        # Add "No Comment" if present
+        if 'No Comment' in category_counts:
+            count = category_counts['No Comment']
+            percentage = (count / len(df)) * 100
+            category_data_for_chart.append({
+                'title': 'No Comment',
+                'count': count,
+                'percentage': percentage
+            })
+        
+        # Generate chart image using matplotlib
+        chart_data = generate_chart_image(category_data_for_chart, chart_type='horizontal_bar')
+        
+        # Decode base64 image data
+        image_bytes = base64.b64decode(chart_data)
+        
+        # Create PIL Image to get dimensions
+        pil_image = PILImage.open(io.BytesIO(image_bytes))
+        
+        # Calculate appropriate size for PDF (max 6 inches wide)
+        max_width = 6 * inch
+        aspect_ratio = pil_image.height / pil_image.width
+        img_width = min(max_width, pil_image.width * 0.75)  # 0.75 points per pixel
+        img_height = img_width * aspect_ratio
+        
+        # Create ReportLab Image
+        chart_image = Image(io.BytesIO(image_bytes), width=img_width, height=img_height)
+        
+        story.append(Paragraph("Category Distribution Chart", heading_style))
+        story.append(Spacer(1, 10))
+        story.append(chart_image)
+        story.append(Spacer(1, 20))
+        
+    except Exception as e:
+        current_app.logger.error(f"Error adding chart to PDF: {e}")
+        # Fall back to provided chart data if available
+        if chart_image_data:
+            try:
+                image_data = chart_image_data.split(',')[1]  # Remove data:image/png;base64, prefix
+                image_bytes = base64.b64decode(image_data)
+                
+                # Create PIL Image to get dimensions
+                pil_image = PILImage.open(io.BytesIO(image_bytes))
+                
+                # Calculate appropriate size for PDF (max 6 inches wide)
+                max_width = 6 * inch
+                aspect_ratio = pil_image.height / pil_image.width
+                img_width = min(max_width, pil_image.width * 0.75)  # 0.75 points per pixel
+                img_height = img_width * aspect_ratio
+                
+                # Create ReportLab Image
+                chart_image = Image(io.BytesIO(image_bytes), width=img_width, height=img_height)
+                
+                story.append(Paragraph("Category Distribution Chart", heading_style))
+                story.append(Spacer(1, 10))
+                story.append(chart_image)
+                story.append(Spacer(1, 20))
+                
+            except Exception as e2:
+                current_app.logger.error(f"Error adding fallback chart to PDF: {e2}")
+                # Continue without chart if there's an error
+                pass
     
     # Sample quotes for each category
     story.append(Paragraph("Sample Quotes by Category", heading_style))

@@ -411,6 +411,14 @@
             <div class="chart-container">
                 <img src="data:image/png;base64,{{ chart_data }}" alt="Category Distribution Chart" class="chart-image">
             </div>
+            {% else %}
+            <h2 class="section-title">Category Distribution Chart</h2>
+            
+            <div class="chart-container">
+                <div class="chart-placeholder">
+                    Chart will be generated during PDF export
+                </div>
+            </div>
             {% endif %}
             
             <div class="quotes-section">
