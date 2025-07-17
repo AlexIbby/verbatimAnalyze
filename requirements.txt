@@ -11,5 +11,4 @@ xlrd==1.2.0
 openai>=1.0.0  # Supports AsyncOpenAI for improved performance
 reportlab>=3.6.0
 APScheduler>=3.9.0
-weasyprint>=60.0
 matplotlib>=3.5.0

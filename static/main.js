@@ -1376,3 +1376,34 @@ function hideDownloadFeedback() {
     const feedback = document.getElementById('download-feedback');
     feedback.style.display = 'none';
 }
+
+// Preview HTML report
+function previewReport() {
+    if (!currentSessionId) return;
+    
+    const btn = document.getElementById('preview-report-btn');
+    const feedback = document.getElementById('download-feedback');
+    
+    // Show loading state
+    btn.classList.add('loading');
+    showDownloadFeedback('info', 'Loading report preview...');
+    
+    // Open preview in new window
+    const previewUrl = `/sessions/${currentSessionId}/report/preview`;
+    const previewWindow = window.open(previewUrl, '_blank', 'width=1000,height=800,scrollbars=yes,resizable=yes');
+    
+    // Reset button state after a brief delay
+    setTimeout(() => {
+        btn.classList.remove('loading');
+        if (previewWindow) {
+            showDownloadFeedback('success', 'Report preview opened in new window!');
+        } else {
+            showDownloadFeedback('error', 'Unable to open preview window. Please check your popup blocker settings.');
+        }
+        
+        // Hide feedback after 3 seconds
+        setTimeout(() => {
+            hideDownloadFeedback();
+        }, 3000);
+    }, 500);
+}

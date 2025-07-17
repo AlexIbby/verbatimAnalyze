@@ -429,13 +429,13 @@
                     <h3 class="category-name">{{ category.title }}</h3>
                     <p class="category-description">{{ category.description }}</p>
                     {% if category.sample_quotes %}
-                    <ol class="quote-list">
+                    <ul class="quote-list">
                         {% for quote in category.sample_quotes %}
                         <li class="quote-item">
-                            <span class="quote-text">"{{ quote }}"</span>
+                            <span class="quote-text">"{{ quote.text }}" <em>(Row {{ quote.row_num }})</em></span>
                         </li>
                         {% endfor %}
-                    </ol>
+                    </ul>
                     {% else %}
                     <p class="quote-item">No sample quotes available for this category.</p>
                     {% endif %}

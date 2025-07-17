@@ -13,18 +13,7 @@ from routes.upload import upload_sessions
 from openai import OpenAI
 from chart_generator import generate_chart_image
 
-# WeasyPrint support for HTML to PDF conversion
-import platform
-try:
-    import weasyprint
-    WEASYPRINT_AVAILABLE = True
-except (ImportError, OSError) as e:
-    # WeasyPrint has complex dependencies on Windows
-    # Fall back to ReportLab which works reliably across platforms
-    WEASYPRINT_AVAILABLE = False
-    if platform.system() == "Windows":
-        import logging
-        logging.getLogger(__name__).info("WeasyPrint not available on Windows, using ReportLab for PDF generation")
+# Always use ReportLab for PDF generation for better cross-platform compatibility
 
 download_bp = Blueprint('download', __name__)
 
@@ -137,19 +126,26 @@ def preview_report(session_id):
             count = category_counts.get(title, 0)
             percentage = (count / len(df)) * 100 if len(df) > 0 else 0
             
-            # Get sample quotes
+            # Get sample quotes with row numbers
             category_df = df[df['Comment Category'] == title]
             sample_quotes = []
             if len(category_df) > 0:
-                sample_comments = category_df[verbatim_col].dropna().astype(str)
-                sample_comments = sample_comments[sample_comments.str.len() > 0]
-                samples = sample_comments.head(3).tolist()
+                # Get the first 3 non-empty comments with their original row numbers
+                sample_data = category_df[category_df[verbatim_col].notna() & 
+                                        (category_df[verbatim_col].astype(str).str.len() > 0)].head(3)
                 
-                for quote in samples:
+                for _, row in sample_data.iterrows():
+                    quote = str(row[verbatim_col])
+                    row_num = row.name + 2  # +2 because pandas index is 0-based and CSV has header
+                    
                     # Truncate very long quotes
                     if len(quote) > 200:
                         quote = quote[:200] + "..."
-                    sample_quotes.append(quote)
+                    
+                    sample_quotes.append({
+                        'text': quote,
+                        'row_num': row_num
+                    })
             
             category_data.append({
                 'title': title,
@@ -340,174 +336,9 @@ Pay close attention to recurring themes, specific service failures, and actionab
         return None
 
 def generate_pdf_report(session, chart_image_data=None):
-    """Generate a PDF report of the classification results"""
-    
-    # Get data
-    df = session['classified_data']
-    categories = session['categories']
-    verbatim_col = session['verbatim_column']
-    filename = session['filename']
-    
-    if WEASYPRINT_AVAILABLE:
-        return generate_pdf_with_weasyprint(session, chart_image_data)
-    else:
-        return generate_pdf_with_reportlab(session, chart_image_data)
+    """Generate a PDF report of the classification results using ReportLab"""
+    return generate_pdf_with_reportlab(session, chart_image_data)
 
-def generate_pdf_with_weasyprint(session, chart_image_data=None):
-    """Generate a PDF report using WeasyPrint"""
-    
-    # Get data
-    df = session['classified_data']
-    categories = session['categories']
-    verbatim_col = session['verbatim_column']
-    filename = session['filename']
-    
-    # Generate insights
-    insights = generate_insights_with_gpt4o(session)
-    
-    # Prepare category data for template
-    category_counts = df['Comment Category'].value_counts()
-    category_data = []
-    
-    for cat in categories:
-        title = cat['title']
-        description = cat['description']
-        count = category_counts.get(title, 0)
-        percentage = (count / len(df)) * 100 if len(df) > 0 else 0
-        
-        # Get sample quotes
-        category_df = df[df['Comment Category'] == title]
-        sample_quotes = []
-        if len(category_df) > 0:
-            sample_comments = category_df[verbatim_col].dropna().astype(str)
-            sample_comments = sample_comments[sample_comments.str.len() > 0]
-            samples = sample_comments.head(3).tolist()
-            
-            for quote in samples:
-                # Truncate very long quotes
-                if len(quote) > 200:
-                    quote = quote[:200] + "..."
-                sample_quotes.append(quote)
-        
-        category_data.append({
-            'title': title,
-            'description': description,
-            'count': count,
-            'percentage': percentage,
-            'sample_quotes': sample_quotes
-        })
-    
-    # Add "No Comment" if present
-    if 'No Comment' in category_counts:
-        count = category_counts['No Comment']
-        percentage = (count / len(df)) * 100
-        category_data.append({
-            'title': 'No Comment',
-            'description': 'Empty, blank, or missing comments',
-            'count': count,
-            'percentage': percentage,
-            'sample_quotes': []
-        })
-    
-    # Generate chart data automatically
-    chart_data = None
-    try:
-        # Generate chart image using matplotlib
-        chart_data = generate_chart_image(category_data, chart_type='horizontal_bar')
-    except Exception as e:
-        current_app.logger.error(f"Error generating chart image: {e}")
-        # If provided chart data exists, use it as fallback
-        if chart_image_data:
-            try:
-                chart_data = chart_image_data.split(',')[1]
-            except Exception as e2:
-                current_app.logger.error(f"Error processing fallback chart image: {e2}")
-    
-    # Render HTML template
-    html_content = render_template('report.html',
-                                 filename=filename,
-                                 total_responses=len(df),
-                                 verbatim_column=verbatim_col,
-                                 insights=insights,
-                                 category_data=category_data,
-                                 chart_data=chart_data)
-    
-    # Generate PDF using WeasyPrint
-    buffer = io.BytesIO()
-    
-    # Create WeasyPrint CSS for better page handling
-    css_content = """
-    @page {
-        size: A4;
-        margin: 20mm;
-    }
-    
-    body {
-        font-family: 'Inter', 'Helvetica', 'Arial', sans-serif;
-        color: #2c3e50;
-        line-height: 1.6;
-        background-color: white;
-    }
-    
-    .report-container {
-        max-width: none;
-        margin: 0;
-        background-color: white;
-        box-shadow: none;
-    }
-    
-    .page-break {
-        page-break-before: always;
-    }
-    
-    .no-page-break {
-        page-break-inside: avoid;
-    }
-    
-    .executive-summary {
-        page-break-inside: avoid;
-    }
-    
-    .category-quotes {
-        page-break-inside: avoid;
-    }
-    
-    .chart-container {
-        page-break-inside: avoid;
-    }
-    
-    .chart-image {
-        max-width: 100%;
-        height: auto;
-    }
-    
-    .category-summary-table {
-        page-break-inside: avoid;
-    }
-    
-    .section-title {
-        page-break-after: avoid;
-    }
-    """
-    
-    try:
-        # Generate PDF using WeasyPrint
-        from weasyprint import HTML as WeasyHTML, CSS as WeasyCSS
-        
-        html_doc = WeasyHTML(string=html_content)
-        css_doc = WeasyCSS(string=css_content)
-        pdf_bytes = html_doc.write_pdf(stylesheets=[css_doc])
-        
-        buffer.write(pdf_bytes)
-        buffer.seek(0)
-        
-        return buffer
-        
-    except Exception as e:
-        current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}")
-        # Fall back to ReportLab if WeasyPrint fails
-        current_app.logger.info("Falling back to ReportLab for PDF generation")
-        return generate_pdf_with_reportlab(session, chart_image_data)
 
 def generate_pdf_with_reportlab(session, chart_image_data=None):
     """Generate a PDF report using ReportLab with improved styling"""
@@ -577,26 +408,39 @@ def generate_pdf_with_reportlab(session, chart_image_data=None):
             story.append(Paragraph(insights['sentiment_summary'], styles['Normal']))
             story.append(Spacer(1, 10))
         
+        # Create a bullet style with better spacing
+        bullet_style = ParagraphStyle(
+            'BulletList',
+            parent=styles['Normal'],
+            leftIndent=20,
+            fontSize=11,
+            fontName='Helvetica',
+            textColor=colors.HexColor('#495057'),
+            spaceAfter=8,
+            spaceBefore=2,
+            leading=16
+        )
+        
         # Key Insights
         if insights.get('key_insights'):
             story.append(Paragraph("<b>Key Insights:</b>", subheading_style))
             for insight in insights['key_insights']:
-                story.append(Paragraph(f"• {insight}", styles['Normal']))
-            story.append(Spacer(1, 10))
+                story.append(Paragraph(f"• {insight}", bullet_style))
+            story.append(Spacer(1, 15))
         
         # Priority Opportunities
         if insights.get('priority_opportunities'):
             story.append(Paragraph("<b>Priority Opportunities:</b>", subheading_style))
             for opportunity in insights['priority_opportunities']:
-                story.append(Paragraph(f"• {opportunity}", styles['Normal']))
-            story.append(Spacer(1, 10))
+                story.append(Paragraph(f"• {opportunity}", bullet_style))
+            story.append(Spacer(1, 15))
         
         # Risk Areas
         if insights.get('risk_areas'):
             story.append(Paragraph("<b>Areas Requiring Attention:</b>", subheading_style))
             for risk in insights['risk_areas']:
-                story.append(Paragraph(f"• {risk}", styles['Normal']))
-            story.append(Spacer(1, 15))
+                story.append(Paragraph(f"• {risk}", bullet_style))
+            story.append(Spacer(1, 20))
         
         story.append(Spacer(1, 20))
     else:
@@ -735,33 +579,37 @@ def generate_pdf_with_reportlab(session, chart_image_data=None):
         story.append(Paragraph(f"<i>{description}</i>", styles['Normal']))
         story.append(Spacer(1, 5))
         
-        # Get sample quotes
+        # Get sample quotes with row numbers
         category_df = df[df['Comment Category'] == title]
         if len(category_df) > 0:
-            sample_comments = category_df[verbatim_col].dropna().astype(str)
-            sample_comments = sample_comments[sample_comments.str.len() > 0]
-            samples = sample_comments.head(3).tolist()
+            # Get the first 3 non-empty comments with their original row numbers
+            sample_data = category_df[category_df[verbatim_col].notna() & 
+                                    (category_df[verbatim_col].astype(str).str.len() > 0)].head(3)
             
-            if samples:
-                for i, quote in enumerate(samples, 1):
+            if len(sample_data) > 0:
+                # Create a bullet style for quotes (similar to executive summary)
+                quote_bullet_style = ParagraphStyle(
+                    'QuoteBullet',
+                    parent=styles['Normal'],
+                    leftIndent=20,
+                    fontSize=11,
+                    fontName='Helvetica',
+                    textColor=colors.HexColor('#495057'),
+                    spaceAfter=10,
+                    spaceBefore=2,
+                    leading=16
+                )
+                
+                for _, row in sample_data.iterrows():
+                    quote = str(row[verbatim_col])
+                    row_num = row.name + 2  # +2 because pandas index is 0-based and CSV has header
+                    
                     # Truncate very long quotes
                     if len(quote) > 200:
                         quote = quote[:200] + "..."
-                    # Create a styled quote
-                    quote_style = ParagraphStyle(
-                        'Quote',
-                        parent=styles['Normal'],
-                        leftIndent=20,
-                        fontSize=10,
-                        fontName='Helvetica',
-                        textColor=colors.HexColor('#495057'),
-                        backColor=colors.HexColor('#f8f9fa'),
-                        borderColor=colors.HexColor('#27ae60'),
-                        borderWidth=1,
-                        borderPadding=8,
-                        spaceAfter=8
-                    )
-                    story.append(Paragraph(f"{i}. \"{quote}\"", quote_style))
+                    
+                    # Format as bullet with row number
+                    story.append(Paragraph(f"• \"{quote}\" <i>(Row {row_num})</i>", quote_bullet_style))
             else:
                 story.append(Paragraph("No sample quotes available.", styles['Normal']))
         else:
