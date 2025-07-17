@@ -637,28 +637,38 @@ function downloadCSV() {
     if (!currentSessionId) return;
     
     const btn = document.getElementById('download-csv-btn');
-    const btnText = btn.querySelector('.btn-text');
-    const btnLoading = btn.querySelector('.btn-loading');
+    const feedback = document.getElementById('download-feedback');
     
     // Show loading state
-    btnText.style.display = 'none';
-    btnLoading.style.display = 'inline';
-    btn.disabled = true;
+    btn.classList.add('loading');
+    showDownloadFeedback('info', 'Generating CSV file... Please wait.');
     
-    // Create a temporary link for download
-    const link = document.createElement('a');
-    link.href = `/sessions/${currentSessionId}/download/csv`;
-    link.download = '';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Create hidden form for download
+    const form = document.createElement('form');
+    form.method = 'GET';
+    form.action = `/sessions/${currentSessionId}/download/csv`;
+    form.style.display = 'none';
+    document.body.appendChild(form);
     
-    // Reset button after short delay
+    // Set a timeout to detect when download starts
+    const downloadTimeout = setTimeout(() => {
+        // Reset button state
+        btn.classList.remove('loading');
+        showDownloadFeedback('success', 'CSV download started! Check your downloads folder.');
+        
+        // Hide feedback after 3 seconds
+        setTimeout(() => {
+            hideDownloadFeedback();
+        }, 3000);
+    }, 1000); // Give it 1 second to start
+    
+    // Submit form to start download
+    form.submit();
+    
+    // Clean up
     setTimeout(() => {
-        btnText.style.display = 'inline';
-        btnLoading.style.display = 'none';
-        btn.disabled = false;
-    }, 1000);
+        document.body.removeChild(form);
+    }, 2000);
 }
 
 // Download PDF with chart image
@@ -666,71 +676,110 @@ function downloadPDF() {
     if (!currentSessionId) return;
     
     const btn = document.getElementById('download-pdf-btn');
-    const btnText = btn.querySelector('.btn-text');
-    const btnLoading = btn.querySelector('.btn-loading');
+    const feedback = document.getElementById('download-feedback');
     
     // Show loading state
-    btnText.style.display = 'none';
-    btnLoading.style.display = 'inline';
-    btn.disabled = true;
+    btn.classList.add('loading');
+    showDownloadFeedback('info', 'Generating PDF report with charts and insights... This may take a moment.');
     
     // Capture chart as image if it exists
     if (categoryChart) {
-        const chartImageData = categoryChart.toBase64Image('image/png', 1.0);
-        
-        // Send chart image data with PDF request
-        fetch(`/sessions/${currentSessionId}/download/pdf`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-                chart_image: chartImageData 
+        try {
+            const chartImageData = categoryChart.toBase64Image('image/png', 1.0);
+            
+            // Send chart image data with PDF request
+            fetch(`/sessions/${currentSessionId}/download/pdf`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    chart_image: chartImageData 
+                })
             })
-        })
-        .then(response => response.blob())
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'comments_analysis_report.pdf';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        })
-        .catch(error => {
-            console.error('Error downloading PDF:', error);
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'comments_analysis_report.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                // Success feedback
+                btn.classList.remove('loading');
+                showDownloadFeedback('success', 'PDF report generated successfully! Check your downloads folder.');
+                
+                // Hide feedback after 4 seconds
+                setTimeout(() => {
+                    hideDownloadFeedback();
+                }, 4000);
+            })
+            .catch(error => {
+                console.error('Error downloading PDF:', error);
+                btn.classList.remove('loading');
+                showDownloadFeedback('error', 'Error generating PDF. Please try again or contact support.');
+                
+                // Try fallback method
+                setTimeout(() => {
+                    showDownloadFeedback('info', 'Trying alternative download method...');
+                    window.open(`/sessions/${currentSessionId}/download/pdf`, '_blank');
+                    
+                    setTimeout(() => {
+                        hideDownloadFeedback();
+                    }, 3000);
+                }, 2000);
+            });
+        } catch (chartError) {
+            console.error('Error capturing chart:', chartError);
             // Fallback to regular PDF download
-            const link = document.createElement('a');
-            link.href = `/sessions/${currentSessionId}/download/pdf`;
-            link.download = '';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        })
-        .finally(() => {
-            // Reset button state
-            btnText.style.display = 'inline';
-            btnLoading.style.display = 'none';
-            btn.disabled = false;
-        });
+            downloadPDFWithoutChart();
+        }
     } else {
         // No chart available, use regular download
-        const link = document.createElement('a');
-        link.href = `/sessions/${currentSessionId}/download/pdf`;
-        link.download = '';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Reset button state
-        setTimeout(() => {
-            btnText.style.display = 'inline';
-            btnLoading.style.display = 'none';
-            btn.disabled = false;
-        }, 1000);
+        downloadPDFWithoutChart();
     }
+}
+
+// Fallback PDF download without chart
+function downloadPDFWithoutChart() {
+    const btn = document.getElementById('download-pdf-btn');
+    
+    showDownloadFeedback('info', 'Generating PDF report... Please wait.');
+    
+    // Create hidden form for download
+    const form = document.createElement('form');
+    form.method = 'GET';
+    form.action = `/sessions/${currentSessionId}/download/pdf`;
+    form.style.display = 'none';
+    document.body.appendChild(form);
+    
+    // Set a timeout to detect when download starts
+    const downloadTimeout = setTimeout(() => {
+        // Reset button state
+        btn.classList.remove('loading');
+        showDownloadFeedback('success', 'PDF download started! Check your downloads folder.');
+        
+        // Hide feedback after 4 seconds
+        setTimeout(() => {
+            hideDownloadFeedback();
+        }, 4000);
+    }, 2000); // Give it 2 seconds for PDF generation
+    
+    // Submit form to start download
+    form.submit();
+    
+    // Clean up
+    setTimeout(() => {
+        document.body.removeChild(form);
+    }, 3000);
 }
 
 // Utility functions
@@ -1304,4 +1353,26 @@ function createDetailedStats(categoryCounts, totalClassified) {
     `;
     
     detailedStats.innerHTML = statsHTML;
+}
+
+// Download feedback utilities
+function showDownloadFeedback(type, message) {
+    const feedback = document.getElementById('download-feedback');
+    
+    // Clear any existing classes
+    feedback.className = 'download-feedback';
+    
+    // Add type class
+    feedback.classList.add(type);
+    
+    // Set message
+    feedback.textContent = message;
+    
+    // Show feedback
+    feedback.style.display = 'block';
+}
+
+function hideDownloadFeedback() {
+    const feedback = document.getElementById('download-feedback');
+    feedback.style.display = 'none';
 }
